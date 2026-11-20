@@ -434,7 +434,7 @@ export function startGame(room: Room, pid: string, now: number): Res<Room> {
 }
 
 /** ランダムマッチ: この人数で即開始 */
-const MATCHMAKING_FULL_PLAYERS = 4;
+const MATCHMAKING_FULL_PLAYERS = 8;
 /** ランダムマッチ: この人数以上いればこの時間で開始 */
 const MATCHMAKING_MIN_PLAYERS = 2;
 const MATCHMAKING_WAIT_MS = 30_000;

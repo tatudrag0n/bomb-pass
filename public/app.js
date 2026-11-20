@@ -297,13 +297,13 @@ function renderLobby(v) {
       Math.ceil((v.createdAt + 30000 - serverNow()) / 1000),
     );
     $('#lobbyHint').textContent = 'ランダムマッチの部屋です。';
-    if (n >= 4) {
+    if (n >= 8) {
       $('#lobbyWait').textContent = 'ランダムマッチで待機中… まもなく開始します';
     } else if (n >= 2) {
       $('#lobbyWait').textContent =
-        `ランダムマッチで待機中… あと${4 - n}人で開始（あと約${waitSec}秒でも自動開始）`;
+        `ランダムマッチで待機中… あと${8 - n}人で開始（あと約${waitSec}秒でも自動開始）`;
     } else {
-      $('#lobbyWait').textContent = 'ランダムマッチで待機中… あと3人で開始';
+      $('#lobbyWait').textContent = 'ランダムマッチで待機中… あと7人で開始';
     }
   } else {
     cancelBtn.classList.add('hidden');
