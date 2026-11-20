@@ -1,12 +1,13 @@
 {
   "name": "bomb-pass",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "description": "LAN/WiFi party game: pass the bomb to a random player before it blows up.",
   "scripts": {
     "dev": "wrangler dev --port 8787",
     "dev:lan": "wrangler dev --ip 0.0.0.0 --port 8787",
+    "deploy": "wrangler deploy",
     "build": "esbuild src/index.ts --bundle --format=esm --target=es2022 --outfile=dist/worker.js",
     "typecheck": "tsc --noEmit",
     "check": "npm run typecheck && npm run build",
