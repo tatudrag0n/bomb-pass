@@ -96,6 +96,8 @@ export interface Room {
   logSeq: number;
   /** この試合の結果を D1 に記録済みか */
   recorded: boolean;
+  /** ランダムマッチの部屋か (自動開始・レート対象) */
+  matchmaking: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -132,6 +134,43 @@ export function newCode(): string {
 export function cleanName(raw: unknown): string {
   if (typeof raw !== 'string') return '';
   return raw.replace(/\s+/g, ' ').trim().slice(0, 12);
+}
+
+/**
+ * ニックネームの禁止ワード。サーバー (game.ts) とクライアント (app.js) の
+ * 2か所に同じリストがある。変えるときは両方変えること。
+ */
+export const BANNED_NAME_WORDS: string[] = [
+  // 性的
+  'ちんこ', 'ちんぽ', 'まんこ', 'おっぱい', 'セックス', 'えろ', 'オナニー', 'ペニス',
+  // 排泄物
+  'うんこ', 'うんち', 'くそ',
+  // 侮辱・差別
+  'ばか', 'バカ', '馬鹿', 'あほ', 'アホ', 'きちがい', 'きもい',
+  // 脅迫
+  '死ね', 'しね', '殺す', 'ころす', 'くたばれ',
+  // なりすまし
+  '運営', '公式', '管理者', '管理人', '運営者', 'admin', 'staff', 'スタッフ',
+  // 英語
+  'fuck', 'shit', 'bitch', 'dick', 'pussy', 'cock', 'sex', 'porn',
+];
+
+/** カタカナをひらがなに寄せる (全角→半角は NFKC で済ませる) */
+function toHiragana(s: string): string {
+  return s.replace(/[\u30a1-\u30f6]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x60));
+}
+
+/** 名前を判定用に正規化する (NFKC・カタカナ→ひらがな・小文字化・空白除去) */
+function normalizeForNameCheck(s: string): string {
+  return toHiragana(s.normalize('NFKC')).toLowerCase().replace(/\s+/g, '');
+}
+
+/** 禁止ワードを含む名前か (部分一致)。空文字は false (空の判定は cleanName 側)。 */
+export function isInappropriateName(raw: unknown): boolean {
+  if (typeof raw !== 'string') return false;
+  const name = normalizeForNameCheck(raw);
+  if (!name) return false;
+  return BANNED_NAME_WORDS.some((w) => name.includes(normalizeForNameCheck(w)));
 }
 
 function pushLog(room: Room, text: string, kind: LogEntry['kind'], now: number): void {
@@ -288,6 +327,7 @@ export function newRoom(
   name: string,
   key: string,
   now: number,
+  matchmaking = false,
 ): Room {
   return {
     code,
@@ -300,6 +340,7 @@ export function newRoom(
     log: [],
     logSeq: 0,
     recorded: false,
+    matchmaking,
     createdAt: now,
     updatedAt: now,
   };
@@ -392,6 +433,27 @@ export function startGame(room: Room, pid: string, now: number): Res<Room> {
   return ok(room);
 }
 
+/** ランダムマッチ: この人数で即開始 */
+const MATCHMAKING_FULL_PLAYERS = 4;
+/** ランダムマッチ: この人数以上いればこの時間で開始 */
+const MATCHMAKING_MIN_PLAYERS = 2;
+const MATCHMAKING_WAIT_MS = 30_000;
+
+/**
+ * ランダムマッチ部屋の自動開始。条件を満たせばホストとして開始する。
+ * join 直後と GET ポーリングの両方から呼ぶ。開始したら true。
+ * 友達の部屋 (matchmaking でない部屋) では開始しない。
+ */
+export function maybeAutoStartMatchmaking(room: Room, now: number): boolean {
+  if (!room.matchmaking || room.phase !== 'lobby') return false;
+  const n = room.players.length;
+  if (n >= MATCHMAKING_FULL_PLAYERS) return startGame(room, room.hostId, now).ok;
+  if (n >= MATCHMAKING_MIN_PLAYERS && now - room.createdAt >= MATCHMAKING_WAIT_MS) {
+    return startGame(room, room.hostId, now).ok;
+  }
+  return false;
+}
+
 export function passBomb(room: Room, pid: string, now: number): Res<Room> {
   if (room.phase !== 'playing' || !room.bomb) return fail('ゲーム中ではありません');
   const bomb = room.bomb;
@@ -459,6 +521,8 @@ export function rematch(room: Room, pid: string, now: number): Res<Room> {
   room.winnerId = null;
   room.round = 0;
   room.recorded = false;
+  // ランダムマッチは1試合かぎり。もう一度遊ぶときは友達の部屋 (手動開始) になる。
+  room.matchmaking = false;
   room.log = [];
   room.logSeq = 0;
   pushLog(room, 'もう一度！スキルを選び直せます', 'info', now);
@@ -483,6 +547,10 @@ export interface PublicState {
   round: number;
   winnerId: string | null;
   serverTime: number;
+  /** ランダムマッチの部屋か */
+  matchmaking: boolean;
+  /** 部屋作成時刻 (サーバー時刻)。ランダムマッチの自動開始までの目安に使う */
+  createdAt: number;
   /** 今の爆弾の元の長さ (ms)。0 のときは爆弾なし */
   fuseMs: number;
   me: {
@@ -521,6 +589,8 @@ export function publicState(room: Room, pid: string | null, now: number): Public
     round: room.round,
     winnerId: room.winnerId,
     serverTime: now,
+    matchmaking: room.matchmaking ?? false,
+    createdAt: room.createdAt,
     fuseMs: bomb ? bomb.fuseMs : 0,
     me: me
       ? {

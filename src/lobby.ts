@@ -16,6 +16,8 @@ export interface LobbyEntry {
   host: string;
   players: number;
   max: number;
+  /** ランダムマッチの部屋か */
+  match?: boolean;
   updatedAt: number;
 }
 
@@ -82,6 +84,7 @@ export class LobbyDO {
         host: typeof body.host === 'string' ? body.host.slice(0, 12) : '',
         players: Number.isFinite(players) ? Math.max(0, Math.min(99, Math.floor(players))) : 0,
         max: Number.isFinite(max) && max > 0 ? Math.min(99, Math.floor(max)) : 8,
+        match: body.match === true,
         updatedAt: now,
       };
       await this.ctx.storage.put(KEY, rooms);

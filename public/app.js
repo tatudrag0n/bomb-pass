@@ -10,6 +10,39 @@ const SKILLS = [
   { id: 'power', icon: '💥', name: '強化', desc: '自分が渡した相手が爆発すると2ライフ削る' },
 ];
 const SKILL_MAP = Object.fromEntries(SKILLS.map((s) => [s.id, s]));
+
+/**
+ * ニックネームの禁止ワード (サーバー src/game.ts の BANNED_NAME_WORDS と同じ)。
+ * サーバー側が正しい判定基準で、こちらは即時フィードバック用。
+ * 変えるときは両方変えること。
+ */
+const BANNED_NAME_WORDS = [
+  // 性的
+  'ちんこ', 'ちんぽ', 'まんこ', 'おっぱい', 'セックス', 'えろ', 'オナニー', 'ペニス',
+  // 排泄物
+  'うんこ', 'うんち', 'くそ',
+  // 侮辱・差別
+  'ばか', 'バカ', '馬鹿', 'あほ', 'アホ', 'きちがい', 'きもい',
+  // 脅迫
+  '死ね', 'しね', '殺す', 'ころす', 'くたばれ',
+  // なりすまし
+  '運営', '公式', '管理者', '管理人', '運営者', 'admin', 'staff', 'スタッフ',
+  // 英語
+  'fuck', 'shit', 'bitch', 'dick', 'pussy', 'cock', 'sex', 'porn',
+];
+
+function toHiragana(s) {
+  return s.replace(/[\u30a1-\u30f6]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x60));
+}
+
+/** 禁止ワードを含む名前か (部分一致。NFKC・カタカナ→ひらがな・小文字化・空白除去して判定) */
+function isInappropriateName(name) {
+  if (typeof name !== 'string') return false;
+  const norm = (s) => toHiragana(s.normalize('NFKC')).toLowerCase().replace(/\s+/g, '');
+  const n = norm(name);
+  if (!n) return false;
+  return BANNED_NAME_WORDS.some((w) => n.includes(norm(w)));
+}
 const SESSION_KEY = 'bombpass.session.v1';
 const NAME_KEY = 'bombpass.name.v1';
 const PROFILE_KEY = 'bombpass.profile.v1';
@@ -237,7 +270,7 @@ function renderLobby(v) {
   $('#lobbyCode').textContent = v.code;
   $('#lobbyCount').textContent = String(v.players.length);
   $('#lobbyPlayers').innerHTML = v.players.map((p) => playerCard(p, v)).join('');
-  $('#lobbyHint').textContent = '同じWiFiの仲間にコードを共有しよう。';
+  $('#lobbyHint').textContent = '仲間にコードを共有しよう。';
 
   buildSkills();
   for (const el of document.querySelectorAll('.skill')) {
@@ -252,15 +285,37 @@ function renderLobby(v) {
         ? `未選択の ${missing} 人はランダムなスキルになります`
         : '';
 
+  // ランダムマッチ部屋は自動開始のため、手動のスタートボタンは出さない
   const btn = $('#btnStart');
-  btn.classList.toggle('hidden', !v.me?.isHost);
-  btn.disabled = !v.me?.isHost || v.players.length < 2;
-  btn.textContent = v.players.length < 2 ? '2人以上で開始できます' : 'ゲーム開始';
-  $('#lobbyWait').textContent = v.me?.isHost
-    ? v.players.length < 2
-      ? 'あと1人以上でスタートできます'
-      : ''
-    : 'ホストが開始すると自動で始まります';
+  const cancelBtn = $('#btnCancelMatch');
+  if (v.matchmaking) {
+    btn.classList.add('hidden');
+    cancelBtn.classList.remove('hidden');
+    const n = v.players.length;
+    const waitSec = Math.max(
+      0,
+      Math.ceil((v.createdAt + 30000 - serverNow()) / 1000),
+    );
+    $('#lobbyHint').textContent = 'ランダムマッチの部屋です。';
+    if (n >= 4) {
+      $('#lobbyWait').textContent = 'ランダムマッチで待機中… まもなく開始します';
+    } else if (n >= 2) {
+      $('#lobbyWait').textContent =
+        `ランダムマッチで待機中… あと${4 - n}人で開始（あと約${waitSec}秒でも自動開始）`;
+    } else {
+      $('#lobbyWait').textContent = 'ランダムマッチで待機中… あと3人で開始';
+    }
+  } else {
+    cancelBtn.classList.add('hidden');
+    btn.classList.toggle('hidden', !v.me?.isHost);
+    btn.disabled = !v.me?.isHost || v.players.length < 2;
+    btn.textContent = v.players.length < 2 ? '2人以上で開始できます' : 'ゲーム開始';
+    $('#lobbyWait').textContent = v.me?.isHost
+      ? v.players.length < 2
+        ? 'あと1人以上でスタートできます'
+        : ''
+      : 'ホストが開始すると自動で始まります';
+  }
 }
 
 function buildSkills() {
@@ -484,8 +539,7 @@ function renderResult(v) {
 let rankOpen = false;
 
 function rankLine(r) {
-  const rate = Math.round(r.winRate * 100);
-  return `<li><span class="rk-name">${r.rank}. ${esc(r.name)}</span><span class="rk-meta">${r.wins}勝 / ${r.games}戦 ・ 勝率${rate}%</span></li>`;
+  return `<li><span class="rk-name">${r.rank}. ${esc(r.name)}</span><span class="rk-meta">レート${Math.round(r.rating ?? 1000)} ・ ${r.ratedWins ?? 0}勝 / ${r.ratedGames ?? 0}戦</span></li>`;
 }
 
 async function fetchRanking(limit) {
@@ -499,12 +553,12 @@ async function toggleRanking() {
   if (rankOpen) {
     rankOpen = false;
     body.classList.add('hidden');
-    btn.textContent = 'ランキングを見る';
+    btn.textContent = 'ランダムマッチランキングを見る';
     return;
   }
   rankOpen = true;
   body.classList.remove('hidden');
-  btn.textContent = 'ランキングをとじる';
+  btn.textContent = 'ランダムマッチランキングをとじる';
   $('#rankList').innerHTML = '<li><span class="rk-name">読み込み中…</span></li>';
   $('#rankMe').textContent = '';
   try {
@@ -516,10 +570,11 @@ async function toggleRanking() {
     }
     $('#rankList').innerHTML = data.top.length
       ? data.top.map(rankLine).join('')
-      : '<li><span class="rk-name">まだ記録がありません</span></li>';
-    $('#rankMe').textContent = data.me
-      ? `あなた: ${data.me.rank}位 ・ ${data.me.wins}勝 / ${data.me.games}戦`
-      : 'あなたの記録はまだありません';
+      : '<li><span class="rk-name">まだランダムマッチの記録がありません</span></li>';
+    $('#rankMe').textContent =
+      data.me && data.me.ratedGames > 0
+        ? `あなた: レート${Math.round(data.me.rating ?? 1000)} ・ ${data.me.ratedWins}勝 / ${data.me.ratedGames}戦 ・ ${data.me.rank}位`
+        : 'ランダムマッチの記録はまだありません';
   } catch (e) {
     $('#rankMe').textContent = e.message;
   }
@@ -536,9 +591,11 @@ async function loadResultStats(v) {
   try {
     const data = await fetchRanking(1);
     if (!data.enabled) return;
-    if (data.me) {
+    if (data.me && data.me.ratedGames > 0) {
+      box.textContent = `レート ${Math.round(data.me.rating ?? 1000)} ・ ランダムマッチ ${data.me.ratedWins}勝 / ${data.me.ratedGames}戦 ・ ランキング ${data.me.rank}位`;
+    } else if (data.me) {
       const rate = Math.round(data.me.winRate * 100);
-      box.textContent = `通算 ${data.me.games}戦 ${data.me.wins}勝（勝率${rate}%）・ ランキング ${data.me.rank}位`;
+      box.textContent = `通算 ${data.me.games}戦 ${data.me.wins}勝（勝率${rate}%）`;
     } else {
       box.textContent = '通算成績はまだありません';
     }
@@ -569,7 +626,7 @@ function agoText(ms) {
 function roomRow(r, now) {
   return `<li>
     <div class="ri-main">
-      <span class="ri-code">${esc(r.code)}</span>
+      <span class="ri-code">${esc(r.code)}${r.match ? ' <span class="ri-match">ランダム</span>' : ''}</span>
       <span class="ri-meta">${esc(r.host || 'ホスト')} ・ ${agoText(now - r.updatedAt)}</span>
     </div>
     <div class="ri-right">
@@ -627,6 +684,10 @@ async function createRoom() {
     err.textContent = 'ニックネームを入力してください';
     return;
   }
+  if (isInappropriateName(name)) {
+    err.textContent = 'その名前は使えません';
+    return;
+  }
   const btn = $('#btnCreate');
   setBusy(btn, true, '作成中…');
   try {
@@ -654,6 +715,10 @@ async function joinRoom(codeArg) {
     err.textContent = 'ニックネームを入力してください';
     return;
   }
+  if (isInappropriateName(name)) {
+    err.textContent = 'その名前は使えません';
+    return;
+  }
   if (code.length !== 4) {
     err.textContent = '部屋コードは4文字です';
     return;
@@ -677,6 +742,63 @@ async function joinRoom(codeArg) {
     err.textContent = e.message;
   } finally {
     setBusy(btn, false, '参加');
+  }
+}
+
+/**
+ * ランダムマッチ: 空きのあるランダムマッチ部屋があればそこに参加し、
+ * なければランダムマッチ部屋を新しく作る。サーバーが自動開始する。
+ */
+async function randomMatch() {
+  const name = $('#nameInput').value.trim();
+  const err = $('#homeError');
+  err.textContent = '';
+  if (!name) {
+    err.textContent = 'ニックネームを入力してください';
+    return;
+  }
+  if (isInappropriateName(name)) {
+    err.textContent = 'その名前は使えません';
+    return;
+  }
+  const btn = $('#btnMatch');
+  setBusy(btn, true, 'マッチング中…');
+  try {
+    localStorage.setItem(NAME_KEY, name);
+    const list = await api('/api/rooms');
+    const open = (Array.isArray(list.rooms) ? list.rooms : [])
+      .filter((r) => r.match && r.players < r.max)
+      .sort((a, b) => b.players - a.players);
+    // 空いているランダムマッチ部屋を人数の多い順に試す
+    for (const room of open) {
+      try {
+        const v = await api(`/api/rooms/${encodeURIComponent(room.code)}/join`, {
+          name,
+          playerKey: profileKey(),
+        });
+        S.code = v.code;
+        S.pid = v.me.id;
+        saveSession();
+        S.lastLogId = 0;
+        closeRooms();
+        applyView(v);
+        schedule(v.phase);
+        return;
+      } catch {
+        // 満員などで入れなかったら次の部屋を試す
+      }
+    }
+    const v = await api('/api/rooms', { name, playerKey: profileKey(), matchmaking: true });
+    S.code = v.code;
+    S.pid = v.me.id;
+    saveSession();
+    S.lastLogId = 0;
+    applyView(v);
+    schedule(v.phase);
+  } catch (e) {
+    err.textContent = e.message;
+  } finally {
+    setBusy(btn, false, 'ランダムマッチ');
   }
 }
 
@@ -763,7 +885,9 @@ function leave() {
 
 function boot() {
   $('#btnCreate').addEventListener('click', createRoom);
+  $('#btnMatch').addEventListener('click', randomMatch);
   $('#btnJoin').addEventListener('click', () => joinRoom());
+  $('#btnCancelMatch').addEventListener('click', leave);
   $('#btnRooms').addEventListener('click', toggleRooms);
   $('#roomList').addEventListener('click', (ev) => {
     const btn = ev.target.closest('.ri-join');

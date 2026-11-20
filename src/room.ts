@@ -2,8 +2,10 @@ import {
   MAX_PLAYERS,
   chooseSkill,
   cleanName,
+  isInappropriateName,
   joinRoom,
   leaveRoom,
+  maybeAutoStartMatchmaking,
   newId,
   newRoom,
   passBomb,
@@ -93,7 +95,13 @@ export class RoomDO {
     const open = room.phase === 'lobby' && room.players.length < MAX_PLAYERS;
     const host = room.players.find((p) => p.id === room.hostId);
     const payload = open
-      ? { code: room.code, host: host?.name ?? '', players: room.players.length, max: MAX_PLAYERS }
+      ? {
+          code: room.code,
+          host: host?.name ?? '',
+          players: room.players.length,
+          max: MAX_PLAYERS,
+          match: room.matchmaking,
+        }
       : { code: room.code };
 
     try {
@@ -127,6 +135,8 @@ export class RoomDO {
               win: p.id === room.winnerId,
             })),
             now,
+            // レート対象はランダムマッチの試合だけ
+            { rated: room.matchmaking === true },
           );
         } catch (e) {
           console.error('stats record failed', e);
@@ -153,11 +163,19 @@ export class RoomDO {
     if (action === 'create') {
       const name = cleanName(body.name);
       if (!name) return json({ error: 'ニックネームを入力してください' }, 400);
+      if (isInappropriateName(name)) return json({ error: 'その名前は使えません' }, 400);
       if (this.room && this.room.phase !== 'closed' && now - this.room.updatedAt < ROOM_TTL_MS) {
         return json({ error: 'コードが重複しました' }, 409);
       }
       const playerId = newId();
-      this.room = newRoom(code, playerId, name, cleanKey(body.playerKey, playerId), now);
+      this.room = newRoom(
+        code,
+        playerId,
+        name,
+        cleanKey(body.playerKey, playerId),
+        now,
+        body.matchmaking === true,
+      );
       await this.save();
       await this.syncLobby(now, true);
       return json(publicState(this.room, playerId, now));
@@ -169,18 +187,24 @@ export class RoomDO {
     const dirty = resolveDue(this.room, now);
 
     if (method === 'GET') {
-      if (dirty) await this.persist(now);
+      // ランダムマッチ部屋は条件がそろえば自動開始する
+      const started = maybeAutoStartMatchmaking(this.room, now);
+      if (dirty || started) await this.persist(now);
       // 募集中の部屋は一覧に残り続けるよう、定期的に更新する
       if (this.room.phase === 'lobby') this.ctx.waitUntil(this.syncLobby(now));
+      else if (started) this.ctx.waitUntil(this.syncLobby(now, true));
       return json(publicState(this.room, pid, now));
     }
 
     if (action === 'join') {
       const name = cleanName(body.name);
       if (!name) return json({ error: 'ニックネームを入力してください' }, 400);
+      if (isInappropriateName(name)) return json({ error: 'その名前は使えません' }, 400);
       const newPid = newId();
       const result = joinRoom(this.room, newPid, name, cleanKey(body.playerKey, newPid), now);
       if (!result.ok) return json({ error: result.error }, 400);
+      // 4人そろえばランダムマッチ部屋はここで自動開始する
+      maybeAutoStartMatchmaking(this.room, now);
       await this.persist(now);
       await this.syncLobby(now, true);
       return json(publicState(this.room, newPid, now));

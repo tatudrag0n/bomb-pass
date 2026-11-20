@@ -26,7 +26,7 @@
           <h1 class="hero-title">bakudance</h1>
         </div>
         <p class="lead">
-          同じWiFiの仲間と遊ぶ、ホットポテト。<br />
+          どこからでも遊べる、ホットポテト。<br />
           <em>次に誰へ渡るかは、誰にもわからない。</em>
         </p>
 
@@ -36,6 +36,7 @@
         </label>
 
         <button id="btnCreate" class="primary big" type="button">部屋をつくる</button>
+        <button id="btnMatch" class="secondary big" type="button">ランダムマッチ</button>
 
         <div class="join-row">
           <input id="codeInput" maxlength="4" placeholder="部屋コード" autocapitalize="characters" autocomplete="off" />
@@ -62,12 +63,15 @@
             <li>爆発までの秒数は毎回ランダム（<b>6〜12秒</b>）。ラウンド開始時に爆弾の長さが表示されるが、残り時間は出ない（<b>???</b>）。</li>
             <li>0 になると爆発。ライフが尽きたら脱落、最後の1人が勝ち。</li>
             <li>開始時にスキルを1つ選ぶ。スキルは毎ラウンド変えられる。</li>
+            <li>「ランダムマッチ」は知らない人と自動で対戦。4人そろうか、2人以上で30秒たつと自動で始まる。</li>
+            <li>ランダムマッチの試合だけレート（1000スタート）が変動し、ランキングに載る。友達の部屋の試合はレートに影響しない。</li>
           </ul>
         </details>
 
         <div class="rank-box">
-          <button id="btnRank" class="ghost wide" type="button">ランキングを見る</button>
+          <button id="btnRank" class="ghost wide" type="button">ランダムマッチランキングを見る</button>
           <div id="rankBody" class="hidden">
+            <p class="hint">ランダムマッチのレート順（1000スタート）</p>
             <ol id="rankList" class="ranking"></ol>
             <p id="rankMe" class="hint"></p>
           </div>
@@ -83,7 +87,7 @@
           </div>
           <button id="btnCopy" class="ghost" type="button">リンクをコピー</button>
         </div>
-        <p class="hint" id="lobbyHint">同じWiFiの仲間にコードを共有しよう。</p>
+        <p class="hint" id="lobbyHint">仲間にコードを共有しよう。</p>
 
         <h2 class="section-title">プレイヤー <span id="lobbyCount" class="count">1</span></h2>
         <div id="lobbyPlayers" class="players"></div>
@@ -93,6 +97,7 @@
         <p class="hint" id="skillHint"></p>
 
         <button id="btnStart" class="primary big" type="button">ゲーム開始</button>
+        <button id="btnCancelMatch" class="ghost big hidden" type="button">マッチングをやめる</button>
         <p class="hint" id="lobbyWait"></p>
       </section>
 
