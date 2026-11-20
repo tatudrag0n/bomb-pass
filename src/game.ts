@@ -30,6 +30,11 @@ export const MAX_PLAYERS = 8;
 const MIN_MS = 6000;
 const MAX_MS = 12000;
 
+/** 渡すボタンのクールダウン: 生存人数 × この値 (ms)。受け取った直後は渡せない */
+const PASS_COOLDOWN_PER_PLAYER_MS = 250;
+/** クールダウンの上限 (ms) */
+const PASS_COOLDOWN_MAX_MS = 2000;
+
 /** スキル確率・効果 */
 const ANALYZE_CHANCE = 0.3;
 const ANALYZE_SHOW_MS = 1400;
@@ -61,8 +66,10 @@ export interface Bomb {
   nextTargetId: string | null;
   /** サーバー時刻での爆発時刻 */
   deadline: number;
-  /** この時刻までタップ不可 (妨害) */
+  /** この時刻までタップ不可 (妨害 or クールダウン) */
   passableAt: number;
+  /** タップ不可の理由 ('block' = 妨害, 'cooldown' = 受け取り直後のクールダウン) */
+  lockKind: 'block' | 'cooldown';
   /** 解析スキルの一瞬表示 */
   reveal: { forId: string; until: number; ms: number } | null;
 }
@@ -173,13 +180,24 @@ function landBomb(
   // fuseMs は爆弾の元の長さ。パスでは前の爆弾の値を引き継ぐ。
   const fuseMs = opts.carryMs !== undefined ? (room.bomb?.fuseMs ?? raw) : raw;
 
+  // クールダウン: 受け取った直後は生存人数×250ms (最大2秒) だけ渡せない。
+  // 妨害のロック (3秒) がそれより長い場合は妨害が優先される。
+  const cooldownMs = Math.min(
+    PASS_COOLDOWN_MAX_MS,
+    PASS_COOLDOWN_PER_PLAYER_MS * alivePlayers(room).length,
+  );
+  const blockLock = opts.lockUntil ?? now;
+  const passableAt = Math.max(blockLock, now + cooldownMs);
+  const lockKind: 'block' | 'cooldown' = blockLock > now + cooldownMs ? 'block' : 'cooldown';
+
   const bomb: Bomb = {
     holderId: holder.id,
     fuseMs,
     fromId: opts.fromId ?? null,
     nextTargetId: pickOther(room, holder.id),
     deadline: now + duration,
-    passableAt: opts.lockUntil ?? now,
+    passableAt,
+    lockKind,
     reveal: null,
   };
   room.bomb = bomb;
@@ -412,6 +430,8 @@ export interface PublicState {
     isHolder: boolean;
     canPass: boolean;
     lockUntil: number;
+    /** タップ不可の理由。ロック中でなければ null */
+    lockKind: 'block' | 'cooldown' | null;
     nextIsMe: boolean;
     revealMs: number;
     revealUntil: number;
@@ -446,6 +466,8 @@ export function publicState(room: Room, pid: string | null, now: number): Public
           isHolder: !!bomb && bomb.holderId === me.id,
           canPass: !!bomb && bomb.holderId === me.id && now >= bomb.passableAt,
           lockUntil: bomb && bomb.holderId === me.id && bomb.passableAt > now ? bomb.passableAt : 0,
+          lockKind:
+            bomb && bomb.holderId === me.id && bomb.passableAt > now ? bomb.lockKind : null,
           nextIsMe: !!bomb && me.skill === 'foresight' && bomb.nextTargetId === me.id,
           revealMs: reveal ? reveal.ms : 0,
           revealUntil: reveal ? reveal.until : 0,

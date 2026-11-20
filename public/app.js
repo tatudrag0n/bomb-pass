@@ -376,7 +376,7 @@ function updatePassButton() {
     const remain = ((me.lockUntil - serverNow()) / 1000).toFixed(1);
     btn.disabled = true;
     btn.className = 'pass-btn locked';
-    btn.textContent = `妨害中… ${remain}s`;
+    btn.textContent = me.lockKind === 'block' ? `妨害中… ${remain}s` : `クールダウン… ${remain}s`;
     return;
   }
 
