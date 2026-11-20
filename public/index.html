@@ -48,6 +48,14 @@
             <li>開始時にスキルを1つ選ぶ。スキルは毎ラウンド変えられる。</li>
           </ul>
         </details>
+
+        <div class="rank-box">
+          <button id="btnRank" class="ghost wide" type="button">ランキングを見る</button>
+          <div id="rankBody" class="hidden">
+            <ol id="rankList" class="ranking"></ol>
+            <p id="rankMe" class="hint"></p>
+          </div>
+        </div>
       </section>
 
       <!-- ロビー -->
@@ -102,6 +110,7 @@
         <div class="result-emoji">🏆</div>
         <h1 id="winnerName" class="winner">—</h1>
         <p class="hint">最後まで生き残った！</p>
+        <p id="resultStats" class="hint stats"></p>
         <ol id="ranking" class="ranking"></ol>
         <button id="btnRematch" class="primary big" type="button">もう一度あそぶ</button>
         <button id="btnHome" class="ghost" type="button">部屋を出る</button>
