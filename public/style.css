@@ -220,6 +220,10 @@ button:disabled {
   border: 1px solid var(--line);
 }
 
+.wide {
+  width: 100%;
+}
+
 .ghost {
   background: transparent;
   border: 1px solid var(--line);
@@ -713,6 +717,19 @@ button:disabled {
 #screen-result .ghost {
   margin-top: 12px;
   width: 100%;
+}
+
+.rank-box {
+  margin-top: 14px;
+}
+
+.rank-box .ranking {
+  margin: 12px 0 0;
+}
+
+.stats {
+  color: var(--hot-2);
+  font-weight: 700;
 }
 
 .foot {
