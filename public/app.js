@@ -380,17 +380,28 @@ function updatePassButton() {
     return;
   }
 
+  // 妨害スキルのロック中は押せない
   if (me.isHolder && me.lockUntil > serverNow()) {
     const remain = ((me.lockUntil - serverNow()) / 1000).toFixed(1);
     btn.disabled = true;
     btn.className = 'pass-btn locked';
-    btn.textContent = me.lockKind === 'block' ? `妨害中… ${remain}s` : `クールダウン… ${remain}s`;
+    btn.textContent = `妨害中… ${remain}s`;
     return;
   }
 
-  btn.disabled = true;
+  // 渡すボタンのクールダウン中は押せない
+  if (me.btnReadyAt > serverNow()) {
+    const remain = ((me.btnReadyAt - serverNow()) / 1000).toFixed(1);
+    btn.disabled = true;
+    btn.className = 'pass-btn locked';
+    btn.textContent = `クールダウン… ${remain}s`;
+    return;
+  }
+
+  // ボタンはいつでも押せる。持っていないときのタップは空振りでクールダウンだけ入る。
+  btn.disabled = false;
   btn.className = 'pass-btn';
-  btn.textContent = '爆弾を待つ…';
+  btn.textContent = 'タップでパス';
 }
 
 /** 持っている時間が長いほど爆弾を熱く見せる (残り時間は出さない) */
@@ -687,9 +698,16 @@ async function passBomb() {
   const btn = $('#btnPass');
   btn.disabled = true;
   btn.textContent = 'パス！';
+  const wasHolder = S.view?.me?.isHolder;
+  const holderBefore = S.view?.players?.find((p) => p.isHolder)?.id;
   try {
     const v = await api(`/api/rooms/${S.code}/pass`, { pid: S.pid });
     applyView(v);
+    // 持っていないときのタップは空振り。爆弾の持ち主が変わっていなければ空振り確定。
+    const holderAfter = S.view?.players?.find((p) => p.isHolder)?.id;
+    if (!wasHolder && holderAfter === holderBefore && S.view?.me?.btnReadyAt > serverNow()) {
+      toast('空振り！クールダウンに入ったよ');
+    }
   } catch (e) {
     toast(e.message);
   } finally {

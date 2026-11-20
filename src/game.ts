@@ -33,7 +33,7 @@ export const MAX_PLAYERS = 8;
 const MIN_MS = 6000;
 const MAX_MS = 12000;
 
-/** 渡すボタンのクールダウン: 生存人数 × この値 (ms)。受け取った直後は渡せない */
+/** 渡すボタンのクールダウン: 生存人数 × この値 (ms)。ボタンは爆弾を持っていないときも押せるが、押すたびにこのクールダウンが入る */
 const PASS_COOLDOWN_PER_PLAYER_MS = 250;
 /** クールダウンの上限 (ms) */
 const PASS_COOLDOWN_MAX_MS = 2000;
@@ -55,6 +55,8 @@ export interface Player {
   skill: Skill | null;
   /** 妨害スキルをこの試合で使ったか (1試合1回まで) */
   blockUsed: boolean;
+  /** 渡すボタンのクールダウン明け時刻 (サーバー時刻)。0 = 押せる */
+  passReadyAt: number;
   lives: number;
   alive: boolean;
 }
@@ -69,10 +71,10 @@ export interface Bomb {
   nextTargetId: string | null;
   /** サーバー時刻での爆発時刻 */
   deadline: number;
-  /** この時刻までタップ不可 (妨害 or クールダウン) */
+  /** この時刻までタップ不可 (妨害スキルのロックだけ。受け取り直後のクールダウンはない) */
   passableAt: number;
-  /** タップ不可の理由 ('block' = 妨害, 'cooldown' = 受け取り直後のクールダウン) */
-  lockKind: 'block' | 'cooldown';
+  /** タップ不可の理由 ('block' = 妨害)。ロック中でなければ意味を持たない */
+  lockKind: 'block';
   /** 解析スキルの一瞬表示 */
   reveal: { forId: string; until: number; ms: number } | null;
 }
@@ -170,6 +172,11 @@ function speedFactor(skill: Skill | null): number {
   return 1;
 }
 
+/** 渡すボタンのクールダウン: 生存人数 × 250ms (最大2秒) */
+function buttonCooldownMs(room: Room): number {
+  return Math.min(PASS_COOLDOWN_MAX_MS, PASS_COOLDOWN_PER_PLAYER_MS * alivePlayers(room).length);
+}
+
 /* ------------------------------------------------------------ bomb timing */
 
 /** 爆弾を holderId に着地させる。回避の連鎖はここで処理する。 */
@@ -188,15 +195,11 @@ function landBomb(
   // fuseMs は爆弾の元の長さ。パスでは前の爆弾の値を引き継ぐ。
   const fuseMs = opts.carryMs !== undefined ? (room.bomb?.fuseMs ?? raw) : raw;
 
-  // クールダウン: 受け取った直後は生存人数×250ms (最大2秒) だけ渡せない。
-  // 妨害のロック (3秒) がそれより長い場合は妨害が優先される。
-  const cooldownMs = Math.min(
-    PASS_COOLDOWN_MAX_MS,
-    PASS_COOLDOWN_PER_PLAYER_MS * alivePlayers(room).length,
-  );
-  const blockLock = opts.lockUntil ?? now;
-  const passableAt = Math.max(blockLock, now + cooldownMs);
-  const lockKind: 'block' | 'cooldown' = blockLock > now + cooldownMs ? 'block' : 'cooldown';
+  // 受け取り直後のクールダウンはなし。渡すボタンのクールダウンは各プレイヤー持ち
+  // (passReadyAt) で、持っていないときのタップでも消費される。
+  // ここで残るタップ不可は妨害スキルのロック (3秒) だけ。
+  const passableAt = opts.lockUntil ?? now;
+  const lockKind: 'block' = 'block';
 
   const bomb: Bomb = {
     holderId: holder.id,
@@ -292,7 +295,7 @@ export function newRoom(
     code,
     hostId,
     phase: 'lobby',
-    players: [{ id: hostId, key, name, skill: null, blockUsed: false, lives: MAX_LIVES, alive: true }],
+    players: [{ id: hostId, key, name, skill: null, blockUsed: false, passReadyAt: 0, lives: MAX_LIVES, alive: true }],
     bomb: null,
     round: 0,
     winnerId: null,
@@ -313,7 +316,7 @@ export function joinRoom(
 ): Res<Room> {
   if (room.phase !== 'lobby') return fail('ゲームが始まっているため参加できません');
   if (room.players.length >= MAX_PLAYERS) return fail('この部屋は満員です（8人まで）');
-  room.players.push({ id: pid, key, name, skill: null, blockUsed: false, lives: MAX_LIVES, alive: true });
+  room.players.push({ id: pid, key, name, skill: null, blockUsed: false, passReadyAt: 0, lives: MAX_LIVES, alive: true });
   pushLog(room, `${name} が参加した`, 'info', now);
   return ok(room);
 }
@@ -336,6 +339,7 @@ export function startGame(room: Room, pid: string, now: number): Res<Room> {
     p.lives = MAX_LIVES;
     p.alive = true;
     p.blockUsed = false;
+    p.passReadyAt = 0;
     if (!p.skill) p.skill = pick([...SKILLS]);
   }
   room.phase = 'playing';
@@ -353,11 +357,21 @@ export function startGame(room: Room, pid: string, now: number): Res<Room> {
 export function passBomb(room: Room, pid: string, now: number): Res<Room> {
   if (room.phase !== 'playing' || !room.bomb) return fail('ゲーム中ではありません');
   const bomb = room.bomb;
-  if (bomb.holderId !== pid) return fail('爆弾を持っていません');
-  if (now < bomb.passableAt) return fail('妨害中でタップできません');
 
   const holder = findPlayer(room, pid);
   if (!holder) return fail('プレイヤーが見つかりません');
+  if (!holder.alive) return fail('脱落しています');
+  if (now < holder.passReadyAt) return fail('ボタンのクールダウン中です');
+
+  // 爆弾を持っていないときのタップは空振り。クールダウンだけ消費する。
+  // 連打すると爆弾が来たときにすぐ返せなくなる。
+  if (bomb.holderId !== pid) {
+    holder.passReadyAt = now + buttonCooldownMs(room);
+    return ok(room);
+  }
+
+  // 妨害スキルのロック中はタップできない
+  if (now < bomb.passableAt) return fail('妨害中でタップできません');
 
   // タップが届く前に時間切れ → 爆発させて終わる (パスは無効)
   if (now >= bomb.deadline) {
@@ -383,6 +397,9 @@ export function passBomb(room: Room, pid: string, now: number): Res<Room> {
     }
   }
 
+  // 渡せたら自分のボタンにクールダウンを付ける
+  holder.passReadyAt = now + buttonCooldownMs(room);
+
   // 残り時間を「導火線の残量」として引き継ぐ。deadline - now は今の所持者の
   // 速度で換算された実時間なので、所持者の速度係数を掛けて導火線時間に戻す。
   // そのまま渡すと、減速の所持者を経由するたびに残量が 1/0.6 倍に膨らみ、
@@ -399,6 +416,7 @@ export function rematch(room: Room, pid: string, now: number): Res<Room> {
     p.lives = MAX_LIVES;
     p.alive = true;
     p.blockUsed = false;
+    p.passReadyAt = 0;
   }
   room.phase = 'lobby';
   room.bomb = null;
@@ -443,7 +461,9 @@ export interface PublicState {
     canPass: boolean;
     lockUntil: number;
     /** タップ不可の理由。ロック中でなければ null */
-    lockKind: 'block' | 'cooldown' | null;
+    lockKind: 'block' | null;
+    /** 渡すボタンのクールダウン明け時刻 (サーバー時刻) */
+    btnReadyAt: number;
     nextIsMe: boolean;
     revealMs: number;
     revealUntil: number;
@@ -476,10 +496,12 @@ export function publicState(room: Room, pid: string | null, now: number): Public
           alive: me.alive,
           isHost: me.id === room.hostId,
           isHolder: !!bomb && bomb.holderId === me.id,
-          canPass: !!bomb && bomb.holderId === me.id && now >= bomb.passableAt,
+          canPass:
+            !!bomb && bomb.holderId === me.id && now >= bomb.passableAt && now >= me.passReadyAt,
           lockUntil: bomb && bomb.holderId === me.id && bomb.passableAt > now ? bomb.passableAt : 0,
           lockKind:
             bomb && bomb.holderId === me.id && bomb.passableAt > now ? bomb.lockKind : null,
+          btnReadyAt: me.passReadyAt,
           nextIsMe: !!bomb && me.skill === 'foresight' && bomb.nextTargetId === me.id,
           revealMs: reveal ? reveal.ms : 0,
           revealUntil: reveal ? reveal.until : 0,
