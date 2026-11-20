@@ -11,12 +11,17 @@ import {
   startGame,
   type Room,
 } from './game';
+import { recordGame } from './stats';
 
 /**
  * 部屋ごとの Durable Object。
  * 1ルーム = 1インスタンスなので、状態はメモリ上で直列に扱える
  * (D1 のような楽観ロック・再試行が不要)。
  */
+
+interface Env {
+  DB?: D1Database;
+}
 
 const HEADERS = {
   'content-type': 'application/json; charset=utf-8',
@@ -38,13 +43,21 @@ async function readBody(request: Request): Promise<Record<string, unknown>> {
   }
 }
 
+/** ブラウザが生成した匿名ID (通算戦績のキー) */
+function cleanKey(raw: unknown, fallback: string): string {
+  if (typeof raw === 'string' && /^[a-z0-9]{8,64}$/i.test(raw)) return raw;
+  return fallback;
+}
+
 export class RoomDO {
   private readonly ctx: DurableObjectState;
+  private readonly env: Env;
   private room: Room | null = null;
   private loaded = false;
 
-  constructor(ctx: DurableObjectState) {
+  constructor(ctx: DurableObjectState, env: Env) {
     this.ctx = ctx;
+    this.env = env;
   }
 
   private async load(): Promise<void> {
@@ -56,6 +69,34 @@ export class RoomDO {
 
   private async save(): Promise<void> {
     if (this.room) await this.ctx.storage.put('room', this.room);
+  }
+
+  /** 決着した試合を1回だけ D1 に記録してから保存する */
+  private async persist(now: number): Promise<void> {
+    const room = this.room;
+    if (!room) return;
+
+    if (room.phase === 'finished' && !room.recorded) {
+      room.recorded = true;
+      const db = this.env.DB;
+      if (db) {
+        try {
+          await recordGame(
+            db,
+            room.players.map((p) => ({
+              key: p.key || p.id,
+              name: p.name,
+              win: p.id === room.winnerId,
+            })),
+            now,
+          );
+        } catch (e) {
+          console.error('stats record failed', e);
+        }
+      }
+    }
+
+    await this.save();
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -78,7 +119,7 @@ export class RoomDO {
         return json({ error: 'コードが重複しました' }, 409);
       }
       const playerId = newId();
-      this.room = newRoom(code, playerId, name, now);
+      this.room = newRoom(code, playerId, name, cleanKey(body.playerKey, playerId), now);
       await this.save();
       return json(publicState(this.room, playerId, now));
     }
@@ -86,10 +127,10 @@ export class RoomDO {
     if (!this.room) return json({ error: '部屋が見つかりません' }, 404);
 
     // 期限切れの爆弾はここで必ず爆発させる (誰か1人が取得すれば確定する)
-    let dirty = resolveDue(this.room, now);
+    const dirty = resolveDue(this.room, now);
 
     if (method === 'GET') {
-      if (dirty) await this.save();
+      if (dirty) await this.persist(now);
       return json(publicState(this.room, pid, now));
     }
 
@@ -97,9 +138,9 @@ export class RoomDO {
       const name = cleanName(body.name);
       if (!name) return json({ error: 'ニックネームを入力してください' }, 400);
       const newPid = newId();
-      const result = joinRoom(this.room, newPid, name, now);
+      const result = joinRoom(this.room, newPid, name, cleanKey(body.playerKey, newPid), now);
       if (!result.ok) return json({ error: result.error }, 400);
-      await this.save();
+      await this.persist(now);
       return json(publicState(this.room, newPid, now));
     }
 
@@ -110,28 +151,28 @@ export class RoomDO {
     if (action === 'skill') {
       const result = chooseSkill(this.room, pid, body.skill);
       if (!result.ok) return json({ error: result.error }, 400);
-      await this.save();
+      await this.persist(now);
       return json(publicState(this.room, pid, now));
     }
 
     if (action === 'start') {
       const result = startGame(this.room, pid, now);
       if (!result.ok) return json({ error: result.error }, 400);
-      await this.save();
+      await this.persist(now);
       return json(publicState(this.room, pid, now));
     }
 
     if (action === 'pass') {
       const result = passBomb(this.room, pid, now);
       if (!result.ok) return json({ error: result.error }, 400);
-      await this.save();
+      await this.persist(now);
       return json(publicState(this.room, pid, now));
     }
 
     if (action === 'rematch') {
       const result = rematch(this.room, pid, now);
       if (!result.ok) return json({ error: result.error }, 400);
-      await this.save();
+      await this.persist(now);
       return json(publicState(this.room, pid, now));
     }
 
