@@ -1,6 +1,6 @@
 {
   // Cloudflare Workers にそのままデプロイできる設定。
-  // D1 などの事前作成リソースは不要 (DO はデプロイ時に自動作成される)。
+  // Durable Objects はデプロイ時に自動作成される。D1 (bakudance) だけは作成済みのものを参照する。
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "bomb-pass",
   "main": "src/index.ts",
@@ -15,11 +15,10 @@
       { "name": "LOBBY", "class_name": "LobbyDO" }
     ]
   },
-  // 通算戦績・ランキングを使うときだけ D1 を接続する (未設定でもゲームは動く)。
-  // 下の database_id を自分の D1 の ID に置き換えてコメントを外す:
-  // "d1_databases": [
-  //   { "binding": "DB", "database_name": "bakudance", "database_id": "<YOUR_D1_ID>" }
-  // ],
+  // 通算戦績・ランキング用の D1。テーブルは初回アクセス時に自動作成される。
+  "d1_databases": [
+    { "binding": "DB", "database_name": "bakudance", "database_id": "1ec282c6-eea1-47ef-a46b-b0979fa1f9c3" }
+  ],
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["RoomDO"] },
     { "tag": "v2", "new_sqlite_classes": ["LobbyDO"] }

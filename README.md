@@ -1,7 +1,7 @@
 # 💣 爆弾パス (Bomb Pass)
 
 同じWiFiにつながったスマホ同士で遊ぶ、ホットポテト系パーティゲーム。
-Cloudflare Workers + Durable Objects で動きます。D1 は通算戦績・ランキング用のオプションです。
+Cloudflare Workers + Durable Objects で動きます。D1 は通算戦績・ランキング用です。
 
 ## あそびかた
 
@@ -31,24 +31,23 @@ Cloudflare Workers + Durable Objects で動きます。D1 は通算戦績・ラ�
 一覧は `LobbyDO`（Durable Object）が持ち、各部屋から「募集している」状態だけを集約しています。
 ゲーム開始・満員になった部屋は一覧から消え、誰も参加していない部屋は更新が止まって 40 秒で自動的に消えます。
 
-## 通算戦績・ランキング（D1・任意）
+## 通算戦績・ランキング（D1）
 
 決着した試合は、参加者全員の通算成績（試合数・勝利数）として D1 に1回だけ記録されます。
 プレイヤーの識別はブラウザに保存される匿名ID（`bombpass.profile.v1`）です。
-**D1 を接続しない場合、この機能だけが無効になりゲームは通常どおり動きます。**
+D1 を外すとこの機能だけが無効になり、ゲームは通常どおり動きます。
 
-導入手順:
-
-1. Cloudflare で D1 データベースを作成（例: `bakudance`）。
-2. その `database_id` を `wrangler.jsonc` のコメントアウトされた `d1_databases` に記入して有効化:
+このリポジトリは D1（`bakudance`）に接続済みです。設定は `wrangler.jsonc` の以下だけで、
+テーブル（`players`）は初回アクセス時に自動作成されるため、手動のマイグレーションは不要です。
 
 ```jsonc
 "d1_databases": [
-  { "binding": "DB", "database_name": "bakudance", "database_id": "<YOUR_D1_ID>" }
+  { "binding": "DB", "database_name": "bakudance", "database_id": "1ec282c6-eea1-47ef-a46b-b0979fa1f9c3" }
 ],
 ```
 
-3. 再デプロイ。テーブル（`players`）は初回アクセス時に自動作成されます。
+別の環境で動かすときは、この `database_id`（と `database_name`）を自分の D1 のものに差し替えて再デプロイしてください。
+このブロックごと削除するとランキング機能だけが無効になります。
 
 ランキングはホーム画面の「ランキングを見る」で表示され、リザルト画面に自分の通算成績が出ます。
 
@@ -90,8 +89,8 @@ npm run sim        # 3人対戦を自動実行して爆発/ライフ減少/戦�
 ```
 
 `npm run sim` は `BASE_URL` を渡すとデプロイ先にも実行できます。
-D1 をローカルでも試すときは `wrangler.jsonc` に `d1_databases` を書けば、
-Miniflare のローカル SQLite に記録されます。
+ローカル開発でも D1 は Miniflare のローカル SQLite に記録されるので、本番のデータには触れません。
+本番の `bakudance` は `npx wrangler d1 execute bakudance --remote --command "SELECT * FROM players"` で確認できます。
 
 ## 構成
 
