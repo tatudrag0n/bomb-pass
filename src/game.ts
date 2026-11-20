@@ -8,6 +8,9 @@
  *    (「予知」スキルが機能するため)。
  *  - タイマーは渡しても引き継がれる (残り時間はリセットされない)。
  *    加速/減速は「持っている間の進み方」なので、渡した瞬間に残り時間を再計算する。
+ *    残り時間はつねに「導火線の残量」(速度補正なしの時間) で受け渡しし、
+ *    各所持者の速度はその区間の実時間への換算にだけ使う。
+ *    そうしないと減速の所持者を経由するたびに残量が 1/0.6 倍に膨らむ。
  */
 
 export const SKILLS = [
@@ -157,9 +160,14 @@ function baseDuration(): number {
 
 /** 加速 / 減速: そのプレイヤーが持っている間だけ秒数が伸縮する */
 function applySpeed(duration: number, skill: Skill | null): number {
-  if (skill === 'accelerate') return duration / SPEED_ACCELERATE;
-  if (skill === 'decelerate') return duration / SPEED_DECELERATE;
-  return duration;
+  return duration / speedFactor(skill);
+}
+
+/** そのプレイヤーが持っている間の導火線の進み方 (加速 1.5倍速 / 減速 0.6倍速 / それ以外は等速) */
+function speedFactor(skill: Skill | null): number {
+  if (skill === 'accelerate') return SPEED_ACCELERATE;
+  if (skill === 'decelerate') return SPEED_DECELERATE;
+  return 1;
 }
 
 /* ------------------------------------------------------------ bomb timing */
@@ -375,8 +383,12 @@ export function passBomb(room: Room, pid: string, now: number): Res<Room> {
     }
   }
 
-  // 残り時間をそのまま引き継ぐ
-  landBomb(room, target, now, { fromId: holder.id, lockUntil, carryMs: bomb.deadline - now });
+  // 残り時間を「導火線の残量」として引き継ぐ。deadline - now は今の所持者の
+  // 速度で換算された実時間なので、所持者の速度係数を掛けて導火線時間に戻す。
+  // そのまま渡すと、減速の所持者を経由するたびに残量が 1/0.6 倍に膨らみ、
+  // 加速の所持者では逆に縮んでしまう。
+  const carryMs = (bomb.deadline - now) * speedFactor(holder.skill);
+  landBomb(room, target, now, { fromId: holder.id, lockUntil, carryMs });
   return ok(room);
 }
 
