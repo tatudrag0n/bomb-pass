@@ -45,6 +45,8 @@ export interface Player {
   key: string;
   name: string;
   skill: Skill | null;
+  /** 妨害スキルをこの試合で使ったか (1試合1回まで) */
+  blockUsed: boolean;
   lives: number;
   alive: boolean;
 }
@@ -264,7 +266,7 @@ export function newRoom(
     code,
     hostId,
     phase: 'lobby',
-    players: [{ id: hostId, key, name, skill: null, lives: MAX_LIVES, alive: true }],
+    players: [{ id: hostId, key, name, skill: null, blockUsed: false, lives: MAX_LIVES, alive: true }],
     bomb: null,
     round: 0,
     winnerId: null,
@@ -285,7 +287,7 @@ export function joinRoom(
 ): Res<Room> {
   if (room.phase !== 'lobby') return fail('ゲームが始まっているため参加できません');
   if (room.players.length >= MAX_PLAYERS) return fail('この部屋は満員です（8人まで）');
-  room.players.push({ id: pid, key, name, skill: null, lives: MAX_LIVES, alive: true });
+  room.players.push({ id: pid, key, name, skill: null, blockUsed: false, lives: MAX_LIVES, alive: true });
   pushLog(room, `${name} が参加した`, 'info', now);
   return ok(room);
 }
@@ -307,6 +309,7 @@ export function startGame(room: Room, pid: string, now: number): Res<Room> {
   for (const p of room.players) {
     p.lives = MAX_LIVES;
     p.alive = true;
+    p.blockUsed = false;
     if (!p.skill) p.skill = pick([...SKILLS]);
   }
   room.phase = 'playing';
@@ -336,10 +339,11 @@ export function passBomb(room: Room, pid: string, now: number): Res<Room> {
     return ok(room);
   }
 
-  // 妨害: 30% で受け取り手に 3 秒のタップ不可
+  // 妨害: 1試合1回だけ。30% で受け取り手に 3 秒のタップ不可
   let lockUntil = now;
-  if (holder.skill === 'block' && Math.random() < BLOCK_CHANCE) {
+  if (holder.skill === 'block' && !holder.blockUsed && Math.random() < BLOCK_CHANCE) {
     lockUntil = now + BLOCK_MS;
+    holder.blockUsed = true;
   }
 
   const target = bomb.nextTargetId && findPlayer(room, bomb.nextTargetId)?.alive
@@ -364,6 +368,7 @@ export function rematch(room: Room, pid: string, now: number): Res<Room> {
   for (const p of room.players) {
     p.lives = MAX_LIVES;
     p.alive = true;
+    p.blockUsed = false;
   }
   room.phase = 'lobby';
   room.bomb = null;
@@ -382,6 +387,7 @@ export interface PublicPlayer {
   id: string;
   name: string;
   skill: Skill | null;
+  blockUsed: boolean;
   lives: number;
   alive: boolean;
   isHolder: boolean;
@@ -449,6 +455,7 @@ export function publicState(room: Room, pid: string | null, now: number): Public
       id: p.id,
       name: p.name,
       skill: p.skill,
+      blockUsed: p.blockUsed,
       lives: p.lives,
       alive: p.alive,
       isHolder: !!bomb && bomb.holderId === p.id,
