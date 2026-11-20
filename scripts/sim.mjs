@@ -34,12 +34,30 @@ async function main() {
     players.push({ name: names[i], pid: v.me.id, key: keyOf(i) });
   }
 
+  // 部屋検索: 募集中の部屋が一覧に出るか
+  const listed = await api('/api/rooms');
+  const found = (listed.rooms || []).some((r) => r.code === code);
+  console.log(`room list: ${(listed.rooms || []).length}件 / 自分の部屋=${found ? 'あり' : 'なし'}`);
+  if (!found) {
+    console.log('NG: 部屋が検索一覧に出てきません');
+    process.exitCode = 1;
+  }
+
   for (let i = 0; i < players.length; i++) {
     await api(`/api/rooms/${code}/skill`, { pid: players[i].pid, skill: skills[i % skills.length] });
   }
 
   let v = await api(`/api/rooms/${code}/start`, { pid: players[0].pid });
   console.log(`room ${code} / phase=${v.phase} / round=${v.round}`);
+
+  // 開始した部屋は検索一覧から消える
+  const afterStart = await api('/api/rooms');
+  const stillListed = (afterStart.rooms || []).some((r) => r.code === code);
+  console.log(`room list (start 後): 自分の部屋=${stillListed ? 'あり' : 'なし'}`);
+  if (stillListed) {
+    console.log('NG: 開始した部屋が検索一覧に残っています');
+    process.exitCode = 1;
+  }
   console.log(`players: ${v.players.map((p) => `${p.name}(${p.skill},${p.lives})`).join(', ')}`);
 
   let passes = 0;

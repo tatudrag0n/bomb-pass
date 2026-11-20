@@ -10,12 +10,19 @@
     "binding": "ASSETS"
   },
   "durable_objects": {
-    "bindings": [{ "name": "ROOMS", "class_name": "RoomDO" }]
+    "bindings": [
+      { "name": "ROOMS", "class_name": "RoomDO" },
+      { "name": "LOBBY", "class_name": "LobbyDO" }
+    ]
   },
   // 通算戦績・ランキングを使うときだけ D1 を接続する (未設定でもゲームは動く)。
-  "d1_databases": [
-    { "binding": "DB", "database_name": "bakudance", "database_id": "1ec282c6-eea1-47ef-a46b-b0979fa1f9c3" }
+  // 下の database_id を自分の D1 の ID に置き換えてコメントを外す:
+  // "d1_databases": [
+  //   { "binding": "DB", "database_name": "bakudance", "database_id": "<YOUR_D1_ID>" }
+  // ],
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["RoomDO"] },
+    { "tag": "v2", "new_sqlite_classes": ["LobbyDO"] }
   ],
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RoomDO"] }],
   "observability": { "enabled": true }
 }

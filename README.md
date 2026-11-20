@@ -23,6 +23,14 @@ Cloudflare Workers + Durable Objects で動きます。D1 は通算戦績・ラ�
 | 🌀 回避 | 受け取る時、30% でスキップして即座に次の人へ |
 | 💥 強化 | 自分が渡した相手がパスする前に爆発すると 2 ライフ削る |
 
+## 部屋検索
+
+ホーム画面の **「部屋をさがす」** で、いま募集中の部屋（部屋コード・ホスト名・人数）が一覧表示されます。
+行の「参加」を押すだけでその部屋に入れます（5秒ごとに自動更新）。
+
+一覧は `LobbyDO`（Durable Object）が持ち、各部屋から「募集している」状態だけを集約しています。
+ゲーム開始・満員になった部屋は一覧から消え、誰も参加していない部屋は更新が止まって 40 秒で自動的に消えます。
+
 ## 通算戦績・ランキング（D1・任意）
 
 決着した試合は、参加者全員の通算成績（試合数・勝利数）として D1 に1回だけ記録されます。
@@ -31,12 +39,12 @@ Cloudflare Workers + Durable Objects で動きます。D1 は通算戦績・ラ�
 
 導入手順:
 
-1. Cloudflare で D1 データベースを作成（例: `bomb-pass`）。
+1. Cloudflare で D1 データベースを作成（例: `bakudance`）。
 2. その `database_id` を `wrangler.jsonc` のコメントアウトされた `d1_databases` に記入して有効化:
 
 ```jsonc
 "d1_databases": [
-  { "binding": "DB", "database_name": "bomb-pass", "database_id": "<YOUR_D1_ID>" }
+  { "binding": "DB", "database_name": "bakudance", "database_id": "<YOUR_D1_ID>" }
 ],
 ```
 
@@ -68,6 +76,7 @@ Cloudflare 管理下のドメインなら DNS レコードも自動で作られ�
 
 デプロイした URL に全員がアクセスするだけ。ホストが「部屋をつくる」→
 4文字コード（またはリンク）を共有 → 参加、で対戦できます（最大8人）。
+コードを知らなくても「部屋をさがす」から募集中の部屋に入れます。
 LAN 内だけで完結させたい場合は下のローカル起動を使ってください。
 
 ## 開発
@@ -88,6 +97,7 @@ Miniflare のローカル SQLite に記録されます。
 
 - `src/game.ts` — ゲームルール（純粋ロジック）。爆発時刻・次の宛先はサーバーだけが知る。
 - `src/room.ts` — 部屋ごとの Durable Object。状態の保存と API を担当。
+- `src/lobby.ts` — 募集中の部屋を集約する Durable Object（部屋検索）。
 - `src/index.ts` — `/api/*` を部屋の DO に振り分ける Worker、ランキング API。
 - `src/stats.ts` — D1 の通算戦績・ランキング。
 - `public/` — 画面（バニラJS、250ms ポーリングで同期）。
@@ -96,6 +106,7 @@ Miniflare のローカル SQLite に記録されます。
 
 | メソッド | パス | 内容 |
 | --- | --- | --- |
+| GET | `/api/rooms` | 募集中の部屋一覧（部屋検索） |
 | POST | `/api/rooms` | 部屋作成 `{name, playerKey}` |
 | POST | `/api/rooms/:code/join` | 参加 `{name, playerKey}` |
 | GET | `/api/rooms/:code?pid=` | 状態取得（爆発の解決もここ） |
