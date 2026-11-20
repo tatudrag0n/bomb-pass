@@ -36,15 +36,6 @@
           <input id="codeInput" maxlength="4" placeholder="部屋コード" autocapitalize="characters" autocomplete="off" />
           <button id="btnJoin" class="secondary" type="button">参加</button>
         </div>
-
-        <div class="rooms-box">
-          <button id="btnRooms" class="ghost wide" type="button">部屋をさがす</button>
-          <div id="roomsBody" class="hidden">
-            <ul id="roomList" class="room-list"></ul>
-            <p id="roomsHint" class="hint"></p>
-          </div>
-        </div>
-
         <p id="homeError" class="error"></p>
 
         <details class="rules">
@@ -52,7 +43,7 @@
           <ul>
             <li>ライフは <b>3</b>。爆発すると <b>1</b> 減る。</li>
             <li>爆弾を持つ人がタップすると、<b>ランダムな誰か</b>に渡る。</li>
-            <li>爆発までの秒数は毎回ランダム。画面には出ない（<b>???</b>）。</li>
+            <li>爆発までの秒数は毎回ランダム（<b>6〜12秒</b>）。ラウンド開始時に爆弾の長さが表示されるが、残り時間は出ない（<b>???</b>）。</li>
             <li>0 になると爆発。ライフが尽きたら脱落、最後の1人が勝ち。</li>
             <li>開始時にスキルを1つ選ぶ。スキルは毎ラウンド変えられる。</li>
           </ul>
@@ -98,11 +89,13 @@
 
         <div id="nextAlert" class="alert hidden"></div>
         <div id="revealBox" class="reveal hidden"></div>
+        <div id="fuseBanner" class="fuse-banner hidden"></div>
 
         <div class="bomb-stage">
           <div class="bomb" id="bombArt">💣</div>
           <div class="holder-line" id="holderLine">—</div>
           <div class="timer">のこり <b>???</b> 秒</div>
+          <div class="fuse-line" id="fuseLine"></div>
         </div>
 
         <button id="btnPass" class="pass-btn" type="button" disabled>待機中…</button>

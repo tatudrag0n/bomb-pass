@@ -29,6 +29,8 @@ const S = {
   skillsBuilt: false,
   reveal: null,
   toastTimer: null,
+  lastRound: 0,
+  fuseTimer: null,
 };
 
 /* --------------------------------------------------------------- helpers */
@@ -174,6 +176,7 @@ async function poll() {
 function applyView(v) {
   S.view = v;
   S.offset = v.serverTime - Date.now();
+  if (v.phase !== 'playing') S.lastRound = 0;
   if (v.me) {
     S.pid = v.me.id;
     S.code = v.code;
@@ -292,6 +295,22 @@ function renderGame(v) {
 
   const bomb = $('#bombArt');
   bomb.classList.toggle('ticking', !!holder);
+
+  // 爆弾の長さ: 常時表示 + ラウンド開始時にバナー
+  const fuseLine = $('#fuseLine');
+  fuseLine.textContent = v.fuseMs > 0 ? `この爆弾：${Math.round(v.fuseMs / 1000)}秒` : '';
+  if (v.round !== S.lastRound) {
+    S.lastRound = v.round;
+    const banner = $('#fuseBanner');
+    if (v.fuseMs > 0) {
+      banner.classList.remove('hidden');
+      banner.innerHTML = `💣 この爆弾は <b>${Math.round(v.fuseMs / 1000)}秒</b>！`;
+      clearTimeout(S.fuseTimer);
+      S.fuseTimer = setTimeout(() => banner.classList.add('hidden'), 4000);
+    } else {
+      banner.classList.add('hidden');
+    }
+  }
 
   const me = v.me;
   $('#nextAlert').classList.toggle('hidden', !me?.nextIsMe);
@@ -473,71 +492,6 @@ async function loadResultStats(v) {
   }
 }
 
-/* ------------------------------------------------------------ room search */
-
-let roomsOpen = false;
-let roomsTimer = null;
-
-function closeRooms() {
-  roomsOpen = false;
-  clearInterval(roomsTimer);
-  roomsTimer = null;
-  $('#roomsBody').classList.add('hidden');
-  $('#btnRooms').textContent = '部屋をさがす';
-}
-
-function agoText(ms) {
-  const sec = Math.max(0, Math.round(ms / 1000));
-  if (sec < 60) return 'たった今';
-  return `${Math.round(sec / 60)}分前`;
-}
-
-function roomRow(r, now) {
-  return `<li>
-    <div class="ri-main">
-      <span class="ri-code">${esc(r.code)}</span>
-      <span class="ri-meta">${esc(r.host || 'ホスト')} ・ ${agoText(now - r.updatedAt)}</span>
-    </div>
-    <div class="ri-right">
-      <span class="ri-count">${r.players}/${r.max}人</span>
-      <button class="secondary ri-join" type="button" data-code="${esc(r.code)}">参加</button>
-    </div>
-  </li>`;
-}
-
-async function loadRooms() {
-  const list = $('#roomList');
-  const hint = $('#roomsHint');
-  try {
-    const data = await api('/api/rooms');
-    const rooms = Array.isArray(data.rooms) ? data.rooms : [];
-    if (!rooms.length) {
-      list.innerHTML = '';
-      hint.textContent = 'いま募集中の部屋はありません。部屋をつくるか、コードで参加してください。';
-      return;
-    }
-    const now = data.serverTime || Date.now();
-    list.innerHTML = rooms.map((r) => roomRow(r, now)).join('');
-    hint.textContent = `${rooms.length}件の部屋が募集中（5秒ごとに更新）`;
-  } catch (e) {
-    hint.textContent = e.message;
-  }
-}
-
-async function toggleRooms() {
-  if (roomsOpen) {
-    closeRooms();
-    return;
-  }
-  roomsOpen = true;
-  $('#roomsBody').classList.remove('hidden');
-  $('#btnRooms').textContent = '部屋をさがす（とじる）';
-  $('#roomsHint').textContent = '読み込み中…';
-  await loadRooms();
-  clearInterval(roomsTimer);
-  roomsTimer = setInterval(loadRooms, 5000);
-}
-
 /* ---------------------------------------------------------------- actions */
 
 function setBusy(btn, busy, text) {
@@ -571,9 +525,9 @@ async function createRoom() {
   }
 }
 
-async function joinRoom(codeArg) {
+async function joinRoom() {
   const name = $('#nameInput').value.trim();
-  const code = (typeof codeArg === 'string' ? codeArg : $('#codeInput').value).trim().toUpperCase();
+  const code = $('#codeInput').value.trim().toUpperCase();
   const err = $('#homeError');
   err.textContent = '';
   if (!name) {
@@ -596,7 +550,6 @@ async function joinRoom(codeArg) {
     S.pid = v.me.id;
     saveSession();
     S.lastLogId = 0;
-    closeRooms();
     applyView(v);
     schedule(v.phase);
   } catch (e) {
@@ -666,7 +619,6 @@ async function copyLink() {
 
 function leave() {
   clearSession();
-  closeRooms();
   S.view = null;
   showScreen('home');
   $('#topCode').classList.add('hidden');
@@ -676,12 +628,7 @@ function leave() {
 
 function boot() {
   $('#btnCreate').addEventListener('click', createRoom);
-  $('#btnJoin').addEventListener('click', () => joinRoom());
-  $('#btnRooms').addEventListener('click', toggleRooms);
-  $('#roomList').addEventListener('click', (ev) => {
-    const btn = ev.target.closest('.ri-join');
-    if (btn) joinRoom(btn.dataset.code);
-  });
+  $('#btnJoin').addEventListener('click', joinRoom);
   $('#btnStart').addEventListener('click', startGame);
   $('#btnPass').addEventListener('click', passBomb);
   $('#btnRematch').addEventListener('click', rematch);

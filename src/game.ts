@@ -27,8 +27,8 @@ export const MAX_LIVES = 3;
 export const MAX_PLAYERS = 8;
 
 /** 爆弾の基本寿命 (ランダム範囲, ms) */
-const MIN_MS = 3500;
-const MAX_MS = 8000;
+const MIN_MS = 6000;
+const MAX_MS = 12000;
 
 /** スキル確率・効果 */
 const ANALYZE_CHANCE = 0.3;
@@ -51,6 +51,8 @@ export interface Player {
 
 export interface Bomb {
   holderId: string;
+  /** この爆弾の元の長さ (ms)。ラウンド開始時に表示する用。パスでは引き継ぐ */
+  fuseMs: number;
   /** この爆弾を手渡した人 (強化スキル判定用) */
   fromId: string | null;
   /** 次に受け取る人 (予知スキル用) */
@@ -166,9 +168,12 @@ function landBomb(
   // carryMs があれば「渡ってきた残り時間」を引き継ぐ。なければ新しい爆弾。
   const raw = opts.carryMs !== undefined ? Math.max(1, opts.carryMs) : baseDuration();
   const duration = applySpeed(raw, holder.skill);
+  // fuseMs は爆弾の元の長さ。パスでは前の爆弾の値を引き継ぐ。
+  const fuseMs = opts.carryMs !== undefined ? (room.bomb?.fuseMs ?? raw) : raw;
 
   const bomb: Bomb = {
     holderId: holder.id,
+    fuseMs,
     fromId: opts.fromId ?? null,
     nextTargetId: pickOther(room, holder.id),
     deadline: now + duration,
@@ -389,6 +394,8 @@ export interface PublicState {
   round: number;
   winnerId: string | null;
   serverTime: number;
+  /** 今の爆弾の元の長さ (ms)。0 のときは爆弾なし */
+  fuseMs: number;
   me: {
     id: string;
     name: string;
@@ -421,6 +428,7 @@ export function publicState(room: Room, pid: string | null, now: number): Public
     round: room.round,
     winnerId: room.winnerId,
     serverTime: now,
+    fuseMs: bomb ? bomb.fuseMs : 0,
     me: me
       ? {
           id: me.id,
