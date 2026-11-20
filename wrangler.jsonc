@@ -2,7 +2,7 @@
   // Cloudflare Workers にそのままデプロイできる設定。
   // Durable Objects はデプロイ時に自動作成される。D1 (bakudance) だけは作成済みのものを参照する。
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "bomb-pass",
+  "name": "bakudance",
   "main": "src/index.ts",
   "compatibility_date": "2025-07-01",
   "assets": {
