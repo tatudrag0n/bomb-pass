@@ -41,6 +41,8 @@ const SPEED_DECELERATE = 0.6;
 
 export interface Player {
   id: string;
+  /** 端末をまたいだ通算戦績のキー (ブラウザに保存される匿名ID) */
+  key: string;
   name: string;
   skill: Skill | null;
   lives: number;
@@ -78,6 +80,8 @@ export interface Room {
   winnerId: string | null;
   log: LogEntry[];
   logSeq: number;
+  /** この試合の結果を D1 に記録済みか */
+  recorded: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -244,26 +248,39 @@ export function resolveDue(room: Room, now: number): boolean {
 
 /* ------------------------------------------------------------------ setup */
 
-export function newRoom(code: string, hostId: string, name: string, now: number): Room {
+export function newRoom(
+  code: string,
+  hostId: string,
+  name: string,
+  key: string,
+  now: number,
+): Room {
   return {
     code,
     hostId,
     phase: 'lobby',
-    players: [{ id: hostId, name, skill: null, lives: MAX_LIVES, alive: true }],
+    players: [{ id: hostId, key, name, skill: null, lives: MAX_LIVES, alive: true }],
     bomb: null,
     round: 0,
     winnerId: null,
     log: [],
     logSeq: 0,
+    recorded: false,
     createdAt: now,
     updatedAt: now,
   };
 }
 
-export function joinRoom(room: Room, pid: string, name: string, now: number): Res<Room> {
+export function joinRoom(
+  room: Room,
+  pid: string,
+  name: string,
+  key: string,
+  now: number,
+): Res<Room> {
   if (room.phase !== 'lobby') return fail('ゲームが始まっているため参加できません');
   if (room.players.length >= MAX_PLAYERS) return fail('この部屋は満員です（8人まで）');
-  room.players.push({ id: pid, name, skill: null, lives: MAX_LIVES, alive: true });
+  room.players.push({ id: pid, key, name, skill: null, lives: MAX_LIVES, alive: true });
   pushLog(room, `${name} が参加した`, 'info', now);
   return ok(room);
 }
@@ -290,6 +307,7 @@ export function startGame(room: Room, pid: string, now: number): Res<Room> {
   room.phase = 'playing';
   room.round = 1;
   room.winnerId = null;
+  room.recorded = false;
   room.log = [];
   room.logSeq = 0;
   room.bomb = null;
@@ -346,6 +364,7 @@ export function rematch(room: Room, pid: string, now: number): Res<Room> {
   room.bomb = null;
   room.winnerId = null;
   room.round = 0;
+  room.recorded = false;
   room.log = [];
   room.logSeq = 0;
   pushLog(room, 'もう一度！スキルを選び直せます', 'info', now);
