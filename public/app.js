@@ -1,5 +1,7 @@
 /* 爆弾パス — クライアント */
 
+import { playSfx, toggleMuted, isMuted } from './sfx.js';
+
 const SKILLS = [
   { id: 'analyze', icon: '🔍', name: '解析', desc: '爆弾を手にした時、30%で残り時間が一瞬だけ見える' },
   { id: 'foresight', icon: '🔮', name: '予知', desc: '次に爆弾が自分に来るかわかる' },
@@ -66,6 +68,8 @@ const S = {
   fuseTimer: null,
   holderId: null,
   holderSince: 0,
+  heatLevel: 0,
+  lobbyCount: 0,
 };
 
 /* --------------------------------------------------------------- helpers */
@@ -215,9 +219,16 @@ async function poll() {
 }
 
 function applyView(v) {
+  const prevPhase = S.view?.phase;
   S.view = v;
   S.offset = v.serverTime - Date.now();
   if (v.phase !== 'playing') S.lastRound = 0;
+
+  // 局面の変わり目で効果音を鳴らす
+  if (prevPhase !== 'playing' && v.phase === 'playing') playSfx('start');
+  if (prevPhase !== 'finished' && v.phase === 'finished') {
+    playSfx(v.winnerId && v.winnerId === v.me?.id ? 'win' : 'lose');
+  }
   if (v.me) {
     S.pid = v.me.id;
     S.code = v.code;
@@ -269,6 +280,9 @@ function playerCard(p, v) {
 function renderLobby(v) {
   $('#lobbyCode').textContent = v.code;
   $('#lobbyCount').textContent = String(v.players.length);
+  // 誰かが新しく入ってきたらポップ音
+  if (v.players.length > S.lobbyCount) playSfx('pop');
+  S.lobbyCount = v.players.length;
   $('#lobbyPlayers').innerHTML = v.players.map((p) => playerCard(p, v)).join('');
   $('#lobbyHint').textContent = '仲間にコードを共有しよう。';
 
@@ -334,6 +348,7 @@ function buildSkills() {
     if (!btn) return;
     try {
       const v = await api(`/api/rooms/${S.code}/skill`, { pid: S.pid, skill: btn.dataset.skill });
+      playSfx('click');
       applyView(v);
     } catch (e) {
       toast(e.message);
@@ -368,8 +383,14 @@ function renderGame(v) {
   // 所持者が変わったら保持時間の計測をリセット
   const holderId = holder ? holder.id : null;
   if (holderId !== S.holderId) {
+    const prevHolderId = S.holderId;
     S.holderId = holderId;
     S.holderSince = serverNow();
+    S.heatLevel = 0;
+    // 実際に誰かから誰かへ渡ったときだけ音を鳴らす (初回の所持は開始音でまかなう)
+    if (prevHolderId && holderId) {
+      playSfx(holderId === v.me?.id ? 'receive' : 'pass');
+    }
   }
 
   const bomb = $('#bombArt');
@@ -469,11 +490,17 @@ function updateBombHeat() {
   if (!bomb) return;
   const holder = S.view?.players?.find((p) => p.isHolder);
   bomb.classList.remove('heat-1', 'heat-2', 'heat-3');
-  if (!holder) return;
+  if (!holder) {
+    S.heatLevel = 0;
+    return;
+  }
   const heldMs = serverNow() - S.holderSince;
-  if (heldMs > 4500) bomb.classList.add('heat-3');
-  else if (heldMs > 3000) bomb.classList.add('heat-2');
-  else if (heldMs > 1500) bomb.classList.add('heat-1');
+  const level = heldMs > 4500 ? 3 : heldMs > 3000 ? 2 : heldMs > 1500 ? 1 : 0;
+  if (level > S.heatLevel) playSfx('tick');
+  S.heatLevel = level;
+  if (level === 3) bomb.classList.add('heat-3');
+  else if (level === 2) bomb.classList.add('heat-2');
+  else if (level === 1) bomb.classList.add('heat-1');
 }
 
 setInterval(() => {
@@ -486,6 +513,9 @@ function renderLog(v) {
 
   const fresh = v.log.filter((entry) => entry.id > S.lastLogId);
   S.lastLogId = last;
+
+  // 爆発のログが来たら爆発音
+  if (fresh.some((entry) => entry.kind === 'danger')) playSfx('explosion');
 
   $('#logList').innerHTML = v.log
     .slice(-10)
@@ -820,6 +850,7 @@ let passBusy = false;
 
 async function passBomb() {
   if (passBusy) return;
+  playSfx('click');
   passBusy = true;
   const btn = $('#btnPass');
   btn.disabled = true;
@@ -900,6 +931,18 @@ function boot() {
   $('#btnRank').addEventListener('click', toggleRanking);
   $('#btnLeave').addEventListener('click', leave);
   $('#btnHome').addEventListener('click', leave);
+
+  // 効果音のオン・オフ (右上のボタン。設定は端末に保存される)
+  const soundBtn = $('#btnSound');
+  const renderSoundBtn = () => {
+    soundBtn.textContent = isMuted() ? '🔇' : '🔊';
+  };
+  renderSoundBtn();
+  soundBtn.addEventListener('click', () => {
+    const nowMuted = toggleMuted();
+    renderSoundBtn();
+    if (!nowMuted) playSfx('pop');
+  });
 
   $('#codeInput').addEventListener('input', (ev) => {
     ev.target.value = ev.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4);
