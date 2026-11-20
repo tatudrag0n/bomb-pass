@@ -31,6 +31,8 @@ const S = {
   toastTimer: null,
   lastRound: 0,
   fuseTimer: null,
+  holderId: null,
+  holderSince: 0,
 };
 
 /* --------------------------------------------------------------- helpers */
@@ -293,6 +295,13 @@ function renderGame(v) {
     ? `爆弾は <b>${esc(holder.name)}</b> の手に`
     : '次の爆弾を待っている…';
 
+  // 所持者が変わったら保持時間の計測をリセット
+  const holderId = holder ? holder.id : null;
+  if (holderId !== S.holderId) {
+    S.holderId = holderId;
+    S.holderSince = serverNow();
+  }
+
   const bomb = $('#bombArt');
   bomb.classList.toggle('ticking', !!holder);
 
@@ -336,6 +345,7 @@ function updatePassButton() {
   const v = S.view;
   const btn = $('#btnPass');
   if (!v || v.phase !== 'playing') return;
+  updateBombHeat();
   const me = v.me;
 
   if (!me) {
@@ -372,6 +382,19 @@ function updatePassButton() {
   btn.textContent = '爆弾を待つ…';
 }
 
+/** 持っている時間が長いほど爆弾を熱く見せる (残り時間は出さない) */
+function updateBombHeat() {
+  const bomb = $('#bombArt');
+  if (!bomb) return;
+  const holder = S.view?.players?.find((p) => p.isHolder);
+  bomb.classList.remove('heat-1', 'heat-2', 'heat-3');
+  if (!holder) return;
+  const heldMs = serverNow() - S.holderSince;
+  if (heldMs > 4500) bomb.classList.add('heat-3');
+  else if (heldMs > 3000) bomb.classList.add('heat-2');
+  else if (heldMs > 1500) bomb.classList.add('heat-1');
+}
+
 setInterval(() => {
   if (S.view?.phase === 'playing') updatePassButton();
 }, 100);
@@ -390,6 +413,12 @@ function renderLog(v) {
 
   if (fresh.some((entry) => entry.kind === 'danger')) {
     document.body.classList.add('shake');
+    const flash = document.querySelector('.boom-flash');
+    if (flash) {
+      flash.classList.remove('go');
+      void flash.offsetWidth;
+      flash.classList.add('go');
+    }
     const bomb = $('#bombArt');
     bomb.classList.remove('bang');
     void bomb.offsetWidth;
