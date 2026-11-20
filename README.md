@@ -67,8 +67,8 @@ Cloudflare ダッシュボードから GitHub リポジトリを接続する場�
 - デプロイコマンド: `npx wrangler deploy`
 - ルートディレクトリ: リポジトリ直下
 
-カスタムドメイン（例: `bakudance.mct-official.com`）は
-Worker の **Settings → Domains & Routes → Add custom domain** から追加します。
+公開 URL は **https://bakudance.mct-official.com**（Worker にカスタムドメインを接続済み）。
+別のドメインを使う場合は Worker の **Settings → Domains & Routes → Add custom domain** から追加します。
 Cloudflare 管理下のドメインなら DNS レコードも自動で作られます。
 
 ## 同一WiFiでの遊び方
