@@ -24,13 +24,14 @@ async function api(path, body) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function main() {
-  const host = await api('/api/rooms', { name: names[0] });
+  const keyOf = (i) => `sim${i}player001`;
+  const host = await api('/api/rooms', { name: names[0], playerKey: keyOf(0) });
   const code = host.code;
-  const players = [{ name: names[0], pid: host.me.id }];
+  const players = [{ name: names[0], pid: host.me.id, key: keyOf(0) }];
 
   for (let i = 1; i < names.length; i++) {
-    const v = await api(`/api/rooms/${code}/join`, { name: names[i] });
-    players.push({ name: names[i], pid: v.me.id });
+    const v = await api(`/api/rooms/${code}/join`, { name: names[i], playerKey: keyOf(i) });
+    players.push({ name: names[i], pid: v.me.id, key: keyOf(i) });
   }
 
   for (let i = 0; i < players.length; i++) {
@@ -84,6 +85,18 @@ async function main() {
     return;
   }
   console.log('OK: 爆発とライフ減少を確認');
+
+  // 通算戦績 (D1 接続時のみ) の確認
+  try {
+    const rank = await api(`/api/ranking?key=${players[0].key}&limit=5`);
+    if (!rank.enabled) {
+      console.log('ranking: 未設定 (D1 バインディングなし)');
+    } else {
+      console.log(`ranking: top=${rank.top.length} me=${rank.me ? `${rank.me.rank}位 ${rank.me.wins}勝/${rank.me.games}戦` : 'なし'}`);
+    }
+  } catch (e) {
+    console.log(`ranking: 取得失敗 (${e.message})`);
+  }
 }
 
 main().catch((e) => {
