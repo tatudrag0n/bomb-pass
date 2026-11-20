@@ -1,0 +1,18 @@
+{
+  // ローカル開発用 (npm run dev / npm run dev:lan)。
+  // 本番は Freebuff Sites が DB バインディングを注入してデプロイする。
+  "name": "bomb-pass",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-01",
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "bomb-pass-dev",
+      "database_id": "00000000-0000-0000-0000-000000000000"
+    }
+  ]
+}
