@@ -1,0 +1,21 @@
+{
+  "name": "bomb-pass",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "LAN/WiFi party game: pass the bomb to a random player before it blows up.",
+  "scripts": {
+    "dev": "wrangler dev --port 8787",
+    "dev:lan": "wrangler dev --ip 0.0.0.0 --port 8787",
+    "build": "esbuild src/index.ts --bundle --format=esm --target=es2022 --outfile=dist/worker.js",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck && npm run build",
+    "sim": "node scripts/sim.mjs"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250109.0",
+    "esbuild": "^0.24.2",
+    "typescript": "^5.7.2",
+    "wrangler": "^3.99.0"
+  }
+}
