@@ -24,7 +24,7 @@ export const SKILLS = [
 ] as const;
 
 export type Skill = (typeof SKILLS)[number];
-export type Phase = 'lobby' | 'playing' | 'finished';
+export type Phase = 'lobby' | 'playing' | 'finished' | 'closed';
 
 export const MAX_LIVES = 3;
 export const MAX_PLAYERS = 8;
@@ -317,6 +317,47 @@ export function joinRoom(
   room.players.push({ id: pid, key, name, skill: null, passReadyAt: 0, lives: MAX_LIVES, alive: true });
   pushLog(room, `${name} が参加した`, 'info', now);
   return ok(room);
+}
+
+/**
+ * 退出する。部屋主が抜けたら部屋ごと閉じる。
+ * 爆弾を持っていたら、導火線の残量を引き継いで他の生存者に渡す。
+ */
+export function leaveRoom(room: Room, pid: string, now: number): Res<{ closed: boolean }> {
+  const player = findPlayer(room, pid);
+  if (!player) return fail('プレイヤーが見つかりません');
+
+  // 部屋主が抜けたら部屋ごと閉じる (残りの人はポーリングでホームに戻る)
+  if (room.hostId === pid) {
+    room.phase = 'closed';
+    room.bomb = null;
+    room.players = [];
+    room.winnerId = null;
+    return ok({ closed: true });
+  }
+
+  const wasHolder = room.phase === 'playing' && room.bomb?.holderId === pid;
+  // 導火線の残量を引き継ぐ (減速の所持者の分も速度係数で戻す)
+  const carryMs =
+    wasHolder && room.bomb
+      ? Math.max(1, (room.bomb.deadline - now) * speedFactor(player.skill))
+      : undefined;
+
+  room.players = room.players.filter((p) => p.id !== pid);
+  pushLog(room, `${player.name} が抜けました`, 'info', now);
+
+  if (room.phase === 'playing') {
+    const alive = alivePlayers(room);
+    if (alive.length <= 1) {
+      room.phase = 'finished';
+      room.winnerId = alive[0]?.id ?? null;
+      room.bomb = null;
+      pushLog(room, alive[0] ? `${alive[0].name} の勝ち！` : '全員いなくなった…', 'good', now);
+    } else if (wasHolder && carryMs !== undefined) {
+      landBomb(room, pick(alive).id, now, { carryMs });
+    }
+  }
+  return ok({ closed: false });
 }
 
 export function chooseSkill(room: Room, pid: string, skill: unknown): Res<Room> {

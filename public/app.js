@@ -154,6 +154,12 @@ async function poll() {
   S.polling = true;
   try {
     const v = await api(`/api/rooms/${encodeURIComponent(S.code)}?pid=${encodeURIComponent(S.pid || '')}`);
+    if (v.phase === 'closed') {
+      clearSession();
+      showScreen('home');
+      toast('部屋主が抜けたため、部屋が閉じられました');
+      return;
+    }
     if (!v.me) {
       clearSession();
       showScreen('home');
@@ -740,11 +746,17 @@ async function copyLink() {
 }
 
 function leave() {
+  const code = S.code;
+  const pid = S.pid;
   clearSession();
   closeRooms();
   S.view = null;
   showScreen('home');
   $('#topCode').classList.add('hidden');
+  if (code && pid) {
+    // サーバーにも退出を伝える (失敗してもローカルの退出は済んでいるので無視)
+    api(`/api/rooms/${encodeURIComponent(code)}/leave`, { pid }).catch(() => {});
+  }
 }
 
 /* ------------------------------------------------------------------- boot */

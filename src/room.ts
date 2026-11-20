@@ -3,6 +3,7 @@ import {
   chooseSkill,
   cleanName,
   joinRoom,
+  leaveRoom,
   newId,
   newRoom,
   passBomb,
@@ -152,7 +153,7 @@ export class RoomDO {
     if (action === 'create') {
       const name = cleanName(body.name);
       if (!name) return json({ error: 'ニックネームを入力してください' }, 400);
-      if (this.room && now - this.room.updatedAt < ROOM_TTL_MS) {
+      if (this.room && this.room.phase !== 'closed' && now - this.room.updatedAt < ROOM_TTL_MS) {
         return json({ error: 'コードが重複しました' }, 409);
       }
       const playerId = newId();
@@ -217,6 +218,14 @@ export class RoomDO {
       await this.persist(now);
       await this.syncLobby(now, true);
       return json(publicState(this.room, pid, now));
+    }
+
+    if (action === 'leave') {
+      const result = leaveRoom(this.room, pid, now);
+      if (!result.ok) return json({ error: result.error }, 400);
+      await this.persist(now);
+      await this.syncLobby(now, true);
+      return json({ closed: result.value.closed, code: this.room.code });
     }
 
     return json({ error: 'not found' }, 404);
