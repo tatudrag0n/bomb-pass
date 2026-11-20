@@ -5,7 +5,7 @@ const SKILLS = [
   { id: 'foresight', icon: '🔮', name: '予知', desc: '次に爆弾が自分に来るかわかる' },
   { id: 'accelerate', icon: '⚡', name: '加速', desc: '自分が持っている間、秒数が1.5倍速になる' },
   { id: 'decelerate', icon: '🧊', name: '減速', desc: '自分が持っている間、秒数が0.6倍速になる' },
-  { id: 'block', icon: '⛓️', name: '妨害', desc: '渡す時、30%で相手に3秒のタップ不可を与える（1ゲーム1回）' },
+  { id: 'block', icon: '⛓️', name: '妨害', desc: '渡す時、30%で相手に1秒のタップ不可を与える' },
   { id: 'dodge', icon: '🌀', name: '回避', desc: '受け取る時、30%でスキップして即座に次へ渡す' },
   { id: 'power', icon: '💥', name: '強化', desc: '自分が渡した相手が爆発すると2ライフ削る' },
 ];
@@ -210,9 +210,7 @@ function hearts(lives) {
 
 function playerCard(p, v) {
   const skill = p.skill ? SKILL_MAP[p.skill] : null;
-  const skillText = skill
-    ? `${skill.icon} ${esc(skill.name)}${p.skill === 'block' && p.blockUsed ? '（使用済み）' : ''}`
-    : 'スキル未選択';
+  const skillText = skill ? `${skill.icon} ${esc(skill.name)}` : 'スキル未選択';
   const cls = [
     'pcard',
     p.id === v.me?.id ? 'me' : '',

@@ -42,7 +42,7 @@ const PASS_COOLDOWN_MAX_MS = 2000;
 const ANALYZE_CHANCE = 0.3;
 const ANALYZE_SHOW_MS = 1400;
 const BLOCK_CHANCE = 0.3;
-const BLOCK_MS = 3000;
+const BLOCK_MS = 1000;
 const DODGE_CHANCE = 0.3;
 const SPEED_ACCELERATE = 1.5;
 const SPEED_DECELERATE = 0.6;
@@ -53,8 +53,6 @@ export interface Player {
   key: string;
   name: string;
   skill: Skill | null;
-  /** 妨害スキルをこの試合で使ったか (1試合1回まで) */
-  blockUsed: boolean;
   /** 渡すボタンのクールダウン明け時刻 (サーバー時刻)。0 = 押せる */
   passReadyAt: number;
   lives: number;
@@ -197,7 +195,7 @@ function landBomb(
 
   // 受け取り直後のクールダウンはなし。渡すボタンのクールダウンは各プレイヤー持ち
   // (passReadyAt) で、持っていないときのタップでも消費される。
-  // ここで残るタップ不可は妨害スキルのロック (3秒) だけ。
+  // ここで残るタップ不可は妨害スキルのロック (1秒) だけ。
   const passableAt = opts.lockUntil ?? now;
   const lockKind: 'block' = 'block';
 
@@ -295,7 +293,7 @@ export function newRoom(
     code,
     hostId,
     phase: 'lobby',
-    players: [{ id: hostId, key, name, skill: null, blockUsed: false, passReadyAt: 0, lives: MAX_LIVES, alive: true }],
+    players: [{ id: hostId, key, name, skill: null, passReadyAt: 0, lives: MAX_LIVES, alive: true }],
     bomb: null,
     round: 0,
     winnerId: null,
@@ -316,7 +314,7 @@ export function joinRoom(
 ): Res<Room> {
   if (room.phase !== 'lobby') return fail('ゲームが始まっているため参加できません');
   if (room.players.length >= MAX_PLAYERS) return fail('この部屋は満員です（8人まで）');
-  room.players.push({ id: pid, key, name, skill: null, blockUsed: false, passReadyAt: 0, lives: MAX_LIVES, alive: true });
+  room.players.push({ id: pid, key, name, skill: null, passReadyAt: 0, lives: MAX_LIVES, alive: true });
   pushLog(room, `${name} が参加した`, 'info', now);
   return ok(room);
 }
@@ -338,7 +336,6 @@ export function startGame(room: Room, pid: string, now: number): Res<Room> {
   for (const p of room.players) {
     p.lives = MAX_LIVES;
     p.alive = true;
-    p.blockUsed = false;
     p.passReadyAt = 0;
     if (!p.skill) p.skill = pick([...SKILLS]);
   }
@@ -379,11 +376,10 @@ export function passBomb(room: Room, pid: string, now: number): Res<Room> {
     return ok(room);
   }
 
-  // 妨害: 1試合1回だけ。30% で受け取り手に 3 秒のタップ不可
+  // 妨害: 30% で受け取り手に 1 秒のタップ不可 (回数制限なし)
   let lockUntil = now;
-  if (holder.skill === 'block' && !holder.blockUsed && Math.random() < BLOCK_CHANCE) {
+  if (holder.skill === 'block' && Math.random() < BLOCK_CHANCE) {
     lockUntil = now + BLOCK_MS;
-    holder.blockUsed = true;
   }
 
   const target = bomb.nextTargetId && findPlayer(room, bomb.nextTargetId)?.alive
@@ -393,7 +389,7 @@ export function passBomb(room: Room, pid: string, now: number): Res<Room> {
   if (lockUntil > now) {
     const receiver = findPlayer(room, target);
     if (receiver) {
-      pushLog(room, `${holder.name} の妨害！ ${receiver.name} は3秒動けない`, 'warn', now);
+      pushLog(room, `${holder.name} の妨害！ ${receiver.name} は1秒動けない`, 'warn', now);
     }
   }
 
@@ -415,7 +411,6 @@ export function rematch(room: Room, pid: string, now: number): Res<Room> {
   for (const p of room.players) {
     p.lives = MAX_LIVES;
     p.alive = true;
-    p.blockUsed = false;
     p.passReadyAt = 0;
   }
   room.phase = 'lobby';
@@ -435,7 +430,6 @@ export interface PublicPlayer {
   id: string;
   name: string;
   skill: Skill | null;
-  blockUsed: boolean;
   lives: number;
   alive: boolean;
   isHolder: boolean;
@@ -511,7 +505,6 @@ export function publicState(room: Room, pid: string | null, now: number): Public
       id: p.id,
       name: p.name,
       skill: p.skill,
-      blockUsed: p.blockUsed,
       lives: p.lives,
       alive: p.alive,
       isHolder: !!bomb && bomb.holderId === p.id,
