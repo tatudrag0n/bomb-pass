@@ -284,6 +284,14 @@ function buildSkills() {
 
 /* ------------------------------------------------------------------ game */
 
+/** 爆弾の長さは幅で表示する (6〜8秒 / 8〜10秒 / 10〜12秒) */
+function fuseRangeText(ms) {
+  const s = ms / 1000;
+  if (s < 8) return '6〜8秒';
+  if (s < 10) return '8〜10秒';
+  return '10〜12秒';
+}
+
 function renderGame(v) {
   $('#roundLabel').textContent = `ROUND ${v.round}`;
 
@@ -310,13 +318,13 @@ function renderGame(v) {
 
   // 爆弾の長さ: 常時表示 + ラウンド開始時にバナー
   const fuseLine = $('#fuseLine');
-  fuseLine.textContent = v.fuseMs > 0 ? `この爆弾：${Math.round(v.fuseMs / 1000)}秒` : '';
+  fuseLine.textContent = v.fuseMs > 0 ? `この爆弾：${fuseRangeText(v.fuseMs)}` : '';
   if (v.round !== S.lastRound) {
     S.lastRound = v.round;
     const banner = $('#fuseBanner');
     if (v.fuseMs > 0) {
       banner.classList.remove('hidden');
-      banner.innerHTML = `💣 この爆弾は <b>${Math.round(v.fuseMs / 1000)}秒</b>！`;
+      banner.innerHTML = `💣 この爆弾は <b>${fuseRangeText(v.fuseMs)}</b>！`;
       clearTimeout(S.fuseTimer);
       S.fuseTimer = setTimeout(() => banner.classList.add('hidden'), 4000);
     } else {
