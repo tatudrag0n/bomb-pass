@@ -36,6 +36,15 @@
           <input id="codeInput" maxlength="4" placeholder="部屋コード" autocapitalize="characters" autocomplete="off" />
           <button id="btnJoin" class="secondary" type="button">参加</button>
         </div>
+
+        <div class="rooms-box">
+          <button id="btnRooms" class="ghost wide" type="button">部屋をさがす</button>
+          <div id="roomsBody" class="hidden">
+            <ul id="roomList" class="room-list"></ul>
+            <p id="roomsHint" class="hint"></p>
+          </div>
+        </div>
+
         <p id="homeError" class="error"></p>
 
         <details class="rules">

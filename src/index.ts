@@ -7,11 +7,13 @@ import { ensureStatsTable, playerStats, topPlayers } from './stats';
  * D1 (DB) は通算戦績・ランキング用のオプション binding。
  */
 
+export { LobbyDO } from './lobby';
 export { RoomDO } from './room';
 
 interface Env {
   ASSETS: Fetcher;
   ROOMS: DurableObjectNamespace;
+  LOBBY?: DurableObjectNamespace;
   DB?: D1Database;
 }
 
@@ -39,6 +41,19 @@ function roomFetch(
     init.headers = { 'content-type': 'application/json' };
   }
   return stub.fetch(`https://room${path}`, init);
+}
+
+/** GET /api/rooms — 募集中の部屋一覧 (部屋検索) */
+async function openRooms(env: Env): Promise<Response> {
+  const ns = env.LOBBY;
+  if (!ns) return json({ rooms: [], serverTime: Date.now() });
+  try {
+    const stub = ns.get(ns.idFromName('global'));
+    return await stub.fetch('https://lobby/list');
+  } catch (e) {
+    console.error('lobby list failed', e);
+    return json({ rooms: [], serverTime: Date.now() });
+  }
 }
 
 /** GET /api/ranking?key=&limit= — 上位一覧と自分の通算成績 */
@@ -75,8 +90,10 @@ export default {
 
       if (seg[1] !== 'rooms') return json({ error: 'not found' }, 404);
 
+      // GET /api/rooms — 募集中の部屋をさがす
       // POST /api/rooms — 空いているコードを探して部屋を作る
       if (seg.length === 2) {
+        if (request.method === 'GET') return await openRooms(env);
         if (request.method !== 'POST') return json({ error: 'not found' }, 404);
         const body = await request.text();
         if (!body) return json({ error: 'リクエストが不正です' }, 400);

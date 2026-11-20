@@ -1,4 +1,5 @@
 import {
+  MAX_PLAYERS,
   chooseSkill,
   cleanName,
   joinRoom,
@@ -21,6 +22,8 @@ import { recordGame } from './stats';
 
 interface Env {
   DB?: D1Database;
+  /** 部屋検索用の一覧 (未接続なら一覧に出ないだけ) */
+  LOBBY?: DurableObjectNamespace;
 }
 
 const HEADERS = {
@@ -33,6 +36,9 @@ const json = (data: unknown, status = 200): Response =>
 
 /** 遊び終わった部屋のコードを再利用できるようにする */
 const ROOM_TTL_MS = 6 * 60 * 60 * 1000;
+
+/** ロビー一覧への反映はこの間隔で間引く (ms) */
+const LOBBY_SYNC_MS = 8000;
 
 async function readBody(request: Request): Promise<Record<string, unknown>> {
   try {
@@ -54,6 +60,7 @@ export class RoomDO {
   private readonly env: Env;
   private room: Room | null = null;
   private loaded = false;
+  private lastLobbySync = 0;
 
   constructor(ctx: DurableObjectState, env: Env) {
     this.ctx = ctx;
@@ -69,6 +76,36 @@ export class RoomDO {
 
   private async save(): Promise<void> {
     if (this.room) await this.ctx.storage.put('room', this.room);
+  }
+
+  /**
+   * 部屋検索の一覧を更新する。
+   * 募集中なら登録、開始後・満員なら削除。一覧側は更新が止まると自動で消える。
+   */
+  private async syncLobby(now: number, force = false): Promise<void> {
+    const room = this.room;
+    const ns = this.env.LOBBY;
+    if (!room || !ns) return;
+    if (!force && now - this.lastLobbySync < LOBBY_SYNC_MS) return;
+    this.lastLobbySync = now;
+
+    const open = room.phase === 'lobby' && room.players.length < MAX_PLAYERS;
+    const host = room.players.find((p) => p.id === room.hostId);
+    const payload = open
+      ? { code: room.code, host: host?.name ?? '', players: room.players.length, max: MAX_PLAYERS }
+      : { code: room.code };
+
+    try {
+      const stub = ns.get(ns.idFromName('global'));
+      await stub.fetch(`https://lobby/${open ? 'upsert' : 'remove'}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+    } catch (e) {
+      // 一覧が更新できなくてもゲーム進行には影響させない
+      console.error('lobby sync failed', e);
+    }
   }
 
   /** 決着した試合を1回だけ D1 に記録してから保存する */
@@ -121,6 +158,7 @@ export class RoomDO {
       const playerId = newId();
       this.room = newRoom(code, playerId, name, cleanKey(body.playerKey, playerId), now);
       await this.save();
+      await this.syncLobby(now, true);
       return json(publicState(this.room, playerId, now));
     }
 
@@ -131,6 +169,8 @@ export class RoomDO {
 
     if (method === 'GET') {
       if (dirty) await this.persist(now);
+      // 募集中の部屋は一覧に残り続けるよう、定期的に更新する
+      if (this.room.phase === 'lobby') this.ctx.waitUntil(this.syncLobby(now));
       return json(publicState(this.room, pid, now));
     }
 
@@ -141,6 +181,7 @@ export class RoomDO {
       const result = joinRoom(this.room, newPid, name, cleanKey(body.playerKey, newPid), now);
       if (!result.ok) return json({ error: result.error }, 400);
       await this.persist(now);
+      await this.syncLobby(now, true);
       return json(publicState(this.room, newPid, now));
     }
 
@@ -159,6 +200,7 @@ export class RoomDO {
       const result = startGame(this.room, pid, now);
       if (!result.ok) return json({ error: result.error }, 400);
       await this.persist(now);
+      await this.syncLobby(now, true);
       return json(publicState(this.room, pid, now));
     }
 
@@ -173,6 +215,7 @@ export class RoomDO {
       const result = rematch(this.room, pid, now);
       if (!result.ok) return json({ error: result.error }, 400);
       await this.persist(now);
+      await this.syncLobby(now, true);
       return json(publicState(this.room, pid, now));
     }
 
