@@ -12,6 +12,7 @@ const SKILLS = [
 const SKILL_MAP = Object.fromEntries(SKILLS.map((s) => [s.id, s]));
 const SESSION_KEY = 'bombpass.session.v1';
 const NAME_KEY = 'bombpass.name.v1';
+const PROFILE_KEY = 'bombpass.profile.v1';
 const MAX_LIVES = 3;
 
 const $ = (sel) => document.querySelector(sel);
@@ -44,6 +45,21 @@ function esc(value) {
 
 function serverNow() {
   return Date.now() + S.offset;
+}
+
+/** 端末ごとの匿名ID (通算戦績のキー) */
+function profileKey() {
+  try {
+    const saved = localStorage.getItem(PROFILE_KEY);
+    if (saved && /^[a-z0-9]{8,64}$/i.test(saved)) return saved;
+    const key = crypto.randomUUID
+      ? crypto.randomUUID().replace(/-/g, '')
+      : Math.random().toString(36).slice(2) + Date.now().toString(36);
+    localStorage.setItem(PROFILE_KEY, key);
+    return key;
+  } catch {
+    return '';
+  }
 }
 
 function toast(message) {
@@ -368,6 +384,7 @@ function renderLog(v) {
 function renderResult(v) {
   const winner = v.players.find((p) => p.id === v.winnerId);
   $('#winnerName').textContent = winner ? winner.name : '引き分け';
+  loadResultStats(v);
 
   const ranked = [...v.players].sort((a, b) => {
     if (a.alive !== b.alive) return a.alive ? -1 : 1;
@@ -386,6 +403,74 @@ function renderResult(v) {
       </li>`;
     })
     .join('');
+}
+
+/* --------------------------------------------------------------- ranking */
+
+let rankOpen = false;
+
+function rankLine(r) {
+  const rate = Math.round(r.winRate * 100);
+  return `<li><span class="rk-name">${r.rank}. ${esc(r.name)}</span><span class="rk-meta">${r.wins}勝 / ${r.games}戦 ・ 勝率${rate}%</span></li>`;
+}
+
+async function fetchRanking(limit) {
+  const key = profileKey();
+  return api(`/api/ranking?limit=${limit}&key=${encodeURIComponent(key)}`);
+}
+
+async function toggleRanking() {
+  const body = $('#rankBody');
+  const btn = $('#btnRank');
+  if (rankOpen) {
+    rankOpen = false;
+    body.classList.add('hidden');
+    btn.textContent = 'ランキングを見る';
+    return;
+  }
+  rankOpen = true;
+  body.classList.remove('hidden');
+  btn.textContent = 'ランキングをとじる';
+  $('#rankList').innerHTML = '<li><span class="rk-name">読み込み中…</span></li>';
+  $('#rankMe').textContent = '';
+  try {
+    const data = await fetchRanking(10);
+    if (!data.enabled) {
+      $('#rankList').innerHTML = '';
+      $('#rankMe').textContent = 'ランキングは未設定です（D1 を接続すると記録されます）';
+      return;
+    }
+    $('#rankList').innerHTML = data.top.length
+      ? data.top.map(rankLine).join('')
+      : '<li><span class="rk-name">まだ記録がありません</span></li>';
+    $('#rankMe').textContent = data.me
+      ? `あなた: ${data.me.rank}位 ・ ${data.me.wins}勝 / ${data.me.games}戦`
+      : 'あなたの記録はまだありません';
+  } catch (e) {
+    $('#rankMe').textContent = e.message;
+  }
+}
+
+let statsShownFor = null;
+
+async function loadResultStats(v) {
+  const id = `${v.code}:${v.round}:${v.winnerId ?? ''}`;
+  if (statsShownFor === id) return;
+  statsShownFor = id;
+  const box = $('#resultStats');
+  box.textContent = '';
+  try {
+    const data = await fetchRanking(1);
+    if (!data.enabled) return;
+    if (data.me) {
+      const rate = Math.round(data.me.winRate * 100);
+      box.textContent = `通算 ${data.me.games}戦 ${data.me.wins}勝（勝率${rate}%）・ ランキング ${data.me.rank}位`;
+    } else {
+      box.textContent = '通算成績はまだありません';
+    }
+  } catch {
+    /* 表示できなくてもゲーム進行には影響させない */
+  }
 }
 
 /* ---------------------------------------------------------------- actions */
@@ -407,7 +492,7 @@ async function createRoom() {
   setBusy(btn, true, '作成中…');
   try {
     localStorage.setItem(NAME_KEY, name);
-    const v = await api('/api/rooms', { name });
+    const v = await api('/api/rooms', { name, playerKey: profileKey() });
     S.code = v.code;
     S.pid = v.me.id;
     saveSession();
@@ -438,7 +523,10 @@ async function joinRoom() {
   setBusy(btn, true, '…');
   try {
     localStorage.setItem(NAME_KEY, name);
-    const v = await api(`/api/rooms/${encodeURIComponent(code)}/join`, { name });
+    const v = await api(`/api/rooms/${encodeURIComponent(code)}/join`, {
+      name,
+      playerKey: profileKey(),
+    });
     S.code = v.code;
     S.pid = v.me.id;
     saveSession();
@@ -526,6 +614,7 @@ function boot() {
   $('#btnPass').addEventListener('click', passBomb);
   $('#btnRematch').addEventListener('click', rematch);
   $('#btnCopy').addEventListener('click', copyLink);
+  $('#btnRank').addEventListener('click', toggleRanking);
   $('#btnLeave').addEventListener('click', leave);
   $('#btnHome').addEventListener('click', leave);
 
